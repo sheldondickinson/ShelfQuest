@@ -1,4 +1,4 @@
-# ShelfQuest runtime data
+﻿# ShelfQuest runtime data
 /data/
 *.db
 *.sqlite

@@ -3,26 +3,10 @@ services:
     build: .
     container_name: shelfquest
     restart: unless-stopped
-    expose:
-      - "8000"
+    ports:
+      - "8123:8000"
     environment:
       - LIBRARY_DB=/data/library.db
       - DEFAULT_LOAN_DAYS=7
-      - ADMIN_PASSWORD=Letmein!2
     volumes:
       - ./data:/data
-
-  shelfquest-proxy:
-    build: ./proxy
-    container_name: shelfquest-proxy
-    restart: unless-stopped
-    depends_on:
-      - shelfquest
-    ports:
-      - "8123:8080"
-      - "8443:8443"
-    environment:
-      - CERT_CN=shelfquest.local
-      - CERT_ALT_NAMES=DNS:shelfquest.local,DNS:localhost,IP:127.0.0.1
-    volumes:
-      - ./data/certs:/certs

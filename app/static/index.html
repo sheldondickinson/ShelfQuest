@@ -7,348 +7,92 @@
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div>
-      <h1>📚 ShelfQuest</h1>
-      <p>Home library borrowing for small humans and tired adults.</p>
-    </div>
-    <div class="version">v0.2.0</div>
+  <header>
+    <h1>ShelfQuest</h1>
+    <p>Home library borrowing for small humans and tired adults.</p>
   </header>
 
-  <nav class="main-nav">
+  <nav>
     <button onclick="showTab('kiosk')">Kid Kiosk</button>
     <button onclick="showTab('admin')">Admin</button>
     <button onclick="refreshAll()">Refresh</button>
   </nav>
 
   <main>
-    <section id="kiosk" class="tab active kid-world">
-      <div class="kid-hero">
-        <div>
-          <h2>ShelfQuest</h2>
-          <p>Choose your reader, find your next book, and start your reading quest.</p>
+    <section id="kiosk" class="tab active">
+      <h2>Kid Kiosk</h2>
+      <div class="grid two">
+        <div class="card">
+          <h3>Borrow</h3>
+          <label>Child card barcode</label>
+          <input id="borrow-child" placeholder="Scan child card, e.g. KID-PASCAL" autocomplete="off" />
+          <label>Book ISBN or barcode</label>
+          <input id="borrow-book" placeholder="Scan book ISBN" autocomplete="off" />
+          <button onclick="checkout()">Borrow Book</button>
+          <p id="borrow-result" class="result"></p>
         </div>
-        <div class="kid-emoji">🦄 🚀 🐉</div>
-      </div>
 
-      <div class="view-nav kid-view-nav">
-        <button class="view-nav-button active" data-view="kid-borrow" onclick="showKidView('borrow')">✨ Borrow</button>
-        <button class="view-nav-button" data-view="kid-return" onclick="showKidView('return')">📦 Return</button>
-        <button class="view-nav-button" data-view="kid-search" onclick="showKidView('search')">🔎 Find</button>
-        <button class="view-nav-button" data-view="kid-loans" onclick="showKidView('loans')">📖 Reading</button>
-      </div>
-
-      <div id="kid-view-borrow" class="view-panel active">
-        <div class="card kid-card borrow-card">
-          <div class="kid-card-title">
-            <span class="big-emoji">✨</span>
-            <div>
-              <h3>Borrow an Adventure</h3>
-              <p>Choose your library card or scan it, then scan a book.</p>
-            </div>
-          </div>
-          <label>My library card</label>
-          <div id="kid-reader-pickers" class="reader-pickers"></div>
-          <select id="kid-child-select" class="kid-input compact-select">
-            <option value="">Choose your card</option>
-          </select>
-          <label>Or scan your library card</label>
-          <div class="scan-input-row">
-            <input id="borrow-child" class="kid-input kid-card-scan" placeholder="Scan your card" autocomplete="off" />
-            <button class="scan-button" type="button" title="Scan with camera" onclick="openBarcodeScanner('borrow-child')">📷</button>
-          </div>
-          <label>Book barcode</label>
-          <div class="scan-input-row">
-            <input id="borrow-book" class="kid-input" placeholder="Scan a book" autocomplete="off" />
-            <button class="scan-button" type="button" title="Scan with camera" onclick="openBarcodeScanner('borrow-book', checkout)">📷</button>
-          </div>
-          <button class="kid-button" onclick="checkout()">Borrow Book</button>
-          <p id="borrow-result" class="result kid-result"></p>
+        <div class="card">
+          <h3>Return</h3>
+          <label>Book ISBN or barcode</label>
+          <input id="return-book" placeholder="Scan book ISBN" autocomplete="off" />
+          <button onclick="returnBook()">Return Book</button>
+          <p id="return-result" class="result"></p>
         </div>
       </div>
 
-      <div id="kid-view-return" class="view-panel">
-        <div class="card kid-card return-card">
-          <div class="kid-card-title">
-            <span class="big-emoji">📦</span>
-            <div>
-              <h3>Magic Returns Box</h3>
-              <p>Scan books when they come back home.</p>
-            </div>
-          </div>
-          <label>Book barcode</label>
-          <div class="scan-input-row">
-            <input id="return-book" class="kid-input" placeholder="Scan a book to return" autocomplete="off" />
-            <button class="scan-button" type="button" title="Scan with camera" onclick="openBarcodeScanner('return-book', returnBook)">📷</button>
-          </div>
-          <button class="kid-button return-button" onclick="returnBook()">Return Book</button>
-          <p id="return-result" class="result kid-result"></p>
-        </div>
-      </div>
-
-      <div id="kid-view-search" class="view-panel">
-        <div class="card kid-card kid-search-card">
-          <div class="kid-card-title">
-            <span class="big-emoji">🔎</span>
-            <div>
-              <h3>Find a Book</h3>
-              <p>Search by title, author, category, or anything you remember.</p>
-            </div>
-          </div>
-          <div class="kid-search-row">
-            <input id="kid-search" class="kid-input" placeholder="Try dinosaurs, Bluey, wombat, bedtime..." autocomplete="off" />
-            <button class="kid-button kid-search-button" onclick="kidSearchBooks()">Search</button>
-          </div>
-          <div id="kid-search-results" class="kid-results"></div>
-        </div>
-      </div>
-
-      <div id="kid-view-loans" class="view-panel">
-        <div class="card kid-card">
-          <h3>Current Reading Quests</h3>
-          <div class="table-scroll"><table id="loans-table"></table></div>
-        </div>
+      <div class="card">
+        <h3>Currently Borrowed</h3>
+        <table id="loans-table"></table>
       </div>
     </section>
 
     <section id="admin" class="tab">
-      <div id="admin-login-card" class="card login-card">
-        <h2>Admin Login</h2>
-        <p>Enter the admin password to edit books, children, covers and catalogue data.</p>
-        <label>Password</label>
-        <input id="admin-password" type="password" autocomplete="current-password" placeholder="Admin password" />
-        <button onclick="adminLogin()">Unlock Admin</button>
-        <p id="admin-login-result" class="result"></p>
+      <h2>Admin</h2>
+      <div class="grid two">
+        <div class="card">
+          <h3>Add Child</h3>
+          <label>Name</label>
+          <input id="child-name" placeholder="Pascal" />
+          <label>Card barcode</label>
+          <input id="child-barcode" placeholder="KID-PASCAL" />
+          <label>Borrow limit</label>
+          <input id="child-limit" type="number" value="5" />
+          <button onclick="addChild()">Add Child</button>
+          <p id="child-result" class="result"></p>
+        </div>
+
+        <div class="card">
+          <h3>Add Book by ISBN</h3>
+          <label>ISBN</label>
+          <input id="isbn" placeholder="Scan ISBN" autocomplete="off" />
+          <button onclick="lookupBook()">Lookup ISBN</button>
+          <label>Title</label>
+          <input id="book-title" />
+          <label>Author</label>
+          <input id="book-author" />
+          <label>Cover URL</label>
+          <input id="book-cover" />
+          <label>Category</label>
+          <input id="book-category" placeholder="Picture Books" />
+          <label>Temporary barcode</label>
+          <input id="book-barcode" placeholder="Defaults to ISBN" />
+          <button onclick="addBook()">Add Book</button>
+          <p id="book-result" class="result"></p>
+        </div>
       </div>
 
-      <div id="admin-content" hidden>
-        <div class="card-heading admin-heading">
-          <h2>Admin</h2>
-          <button class="secondary" onclick="adminLogout()">Lock Admin</button>
-        </div>
+      <div class="card">
+        <h3>Children</h3>
+        <table id="children-table"></table>
+      </div>
 
-        <div class="view-nav admin-view-nav">
-          <button class="view-nav-button active" data-view="admin-books" onclick="showAdminView('books')">📚 Books</button>
-          <button class="view-nav-button" data-view="admin-add" onclick="showAdminView('add')">➕ Add Book</button>
-          <button class="view-nav-button" data-view="admin-children" onclick="showAdminView('children')">🧒 Children</button>
-          <button class="view-nav-button" data-view="admin-returns" onclick="showAdminView('returns')">📦 Bulk Returns</button>
-        </div>
-
-        <div id="admin-view-books" class="view-panel active">
-          <div class="card" id="edit-card" hidden>
-            <div class="card-heading">
-              <h3>Edit Book</h3>
-              <button class="secondary" onclick="cancelEdit()">Cancel</button>
-            </div>
-            <input id="edit-book-id" type="hidden" />
-            <input id="edit-copy-id" type="hidden" />
-            <div class="grid two">
-              <div>
-                <label>Title</label>
-                <input id="edit-title" />
-                <label>Author</label>
-                <input id="edit-author" />
-                <label>Illustrator</label>
-                <input id="edit-illustrator" />
-                <label>Synopsis</label>
-                <textarea id="edit-synopsis" rows="5"></textarea>
-                <label>Category</label>
-                <input id="edit-category" />
-              </div>
-              <div>
-                <label>ISBN</label>
-                <div class="scan-input-row">
-                  <input id="edit-isbn" />
-                  <button class="scan-button" type="button" title="Scan with camera" onclick="openBarcodeScanner('edit-isbn')">📷</button>
-                </div>
-                <label>Barcode</label>
-                <div class="scan-input-row">
-                  <input id="edit-barcode" />
-                  <button class="scan-button" type="button" title="Scan with camera" onclick="openBarcodeScanner('edit-barcode')">📷</button>
-                </div>
-                <label>Quantity owned</label>
-                <input id="edit-qty" type="number" min="1" />
-                <label>Cover URL</label>
-                <input id="edit-cover" />
-                <label>Upload cover image</label>
-                <input id="edit-cover-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-                <div class="inline-actions">
-                  <button class="small secondary" onclick="uploadEditCover()" type="button">Upload cover</button>
-                  <button class="small secondary" onclick="cacheRemoteCovers()" type="button">Copy all CoverURL images to NAS</button>
-                </div>
-                <p id="cover-result" class="result"></p>
-                <label>Shelf location</label>
-                <input id="edit-shelf" placeholder="e.g. Picture Books / Bin 2" />
-                <label>Condition</label>
-                <select id="edit-condition">
-                  <option value="good">Good</option>
-                  <option value="damaged_needs_repair">Damaged, needs repair</option>
-                </select>
-                <label>Condition note</label>
-                <input id="edit-condition-note" placeholder="e.g. torn page, needs tape" />
-              </div>
-            </div>
-            <button onclick="saveEdit()">Save Changes</button>
-            <p id="edit-result" class="result"></p>
-          </div>
-
-          <div class="card" id="books-card">
-            <div class="card-heading wrap">
-              <h3>Books</h3>
-              <div class="search-row">
-                <input id="book-search" placeholder="Search title, author, illustrator, ISBN, barcode, category, synopsis, condition..." autocomplete="off" />
-                <button onclick="refreshBooks()">Search</button>
-                <button class="secondary" onclick="clearBookSearch()">Clear</button>
-              </div>
-            </div>
-            <p id="books-result" class="result"></p>
-            <div class="pagination-bar">
-              <div id="book-page-summary">Loading books…</div>
-              <div class="pagination-controls">
-                <button class="small secondary" onclick="prevBookPage()">Previous</button>
-                <span id="book-page-indicator"></span>
-                <button class="small secondary" onclick="nextBookPage()">Next</button>
-                <select id="book-page-size" onchange="changeBookPageSize()">
-                  <option value="10">10 / page</option>
-                  <option value="25" selected>25 / page</option>
-                  <option value="50">50 / page</option>
-                  <option value="100">100 / page</option>
-                </select>
-              </div>
-            </div>
-            <div class="table-scroll">
-              <table id="books-table"></table>
-            </div>
-          </div>
-        </div>
-
-        <div id="admin-view-add" class="view-panel">
-          <div class="card">
-            <h3>Add Book by ISBN</h3>
-            <label>ISBN</label>
-            <div class="scan-input-row">
-              <input id="isbn" placeholder="Scan ISBN" autocomplete="off" />
-              <button class="scan-button" type="button" title="Scan with camera" onclick="openBarcodeScanner('isbn', lookupBook)">📷</button>
-            </div>
-            <button onclick="lookupBook()">Lookup ISBN</button>
-            <label>Title</label>
-            <input id="book-title" />
-            <label>Author</label>
-            <input id="book-author" />
-            <label>Illustrator</label>
-            <input id="book-illustrator" />
-            <label>Synopsis</label>
-            <textarea id="book-synopsis" rows="4"></textarea>
-            <label>Quantity owned</label>
-            <input id="book-qty" type="number" min="1" value="1" />
-            <label>Cover URL</label>
-            <input id="book-cover" />
-            <label>Category</label>
-            <input id="book-category" placeholder="Picture Books" />
-            <label>Barcode / temporary scan code</label>
-            <div class="scan-input-row">
-              <input id="book-barcode" placeholder="Defaults to ISBN, or use BK000001 later" />
-              <button class="scan-button" type="button" title="Scan with camera" onclick="openBarcodeScanner('book-barcode')">📷</button>
-            </div>
-            <button onclick="addBook()">Add Book</button>
-            <p id="book-result" class="result"></p>
-          </div>
-        </div>
-
-        <div id="admin-view-children" class="view-panel">
-          <div class="grid two">
-            <div class="card">
-              <h3>Add Child</h3>
-              <label>Name</label>
-              <input id="child-name" placeholder="Pascal" />
-              <label>Card barcode</label>
-              <input id="child-barcode" placeholder="KID-PASCAL" />
-              <label>Borrow limit</label>
-              <input id="child-limit" type="number" value="5" />
-              <button onclick="addChild()">Add Child</button>
-              <p id="child-result" class="result"></p>
-            </div>
-
-            <div class="card">
-              <h3>Children</h3>
-              <div class="table-scroll"><table id="children-table"></table></div>
-            </div>
-          </div>
-
-          <div class="card" id="edit-child-card" hidden>
-            <div class="card-heading">
-              <h3>Edit Child</h3>
-              <button class="secondary" onclick="cancelChildEdit()">Cancel</button>
-            </div>
-            <input id="edit-child-id" type="hidden" />
-            <div class="grid two">
-              <div>
-                <label>Name</label>
-                <input id="edit-child-name" />
-                <label>Card barcode</label>
-                <input id="edit-child-barcode" />
-                <label>Borrow limit</label>
-                <input id="edit-child-limit" type="number" min="1" />
-                <label>Active</label>
-                <select id="edit-child-active">
-                  <option value="1">Active</option>
-                  <option value="0">Inactive</option>
-                </select>
-              </div>
-              <div>
-                <label>Current photo</label>
-                <div id="edit-child-photo-preview" class="child-photo-preview"></div>
-                <label>Upload child photo</label>
-                <input id="edit-child-photo-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-                <button class="small secondary" onclick="uploadChildPhoto()" type="button">Upload photo</button>
-                <p id="child-photo-result" class="result"></p>
-              </div>
-            </div>
-            <button onclick="saveChildEdit()">Save Child</button>
-            <p id="edit-child-result" class="result"></p>
-          </div>
-        </div>
-
-        <div id="admin-view-returns" class="view-panel">
-          <div class="card">
-            <h3>Parent Bulk Returns</h3>
-            <p>This is admin-only. Scan returned books into a queue, then return them all in one batch.</p>
-            <label>Book barcode</label>
-            <div class="scan-input-row">
-              <input id="bulk-return-book" placeholder="Scan a returned book" autocomplete="off" />
-              <button class="scan-button" type="button" title="Scan with camera" onclick="openBarcodeScanner('bulk-return-book', addBulkReturnFromInput)">📷</button>
-            </div>
-            <div class="inline-actions">
-              <button onclick="addBulkReturnFromInput()">Add to Return Queue</button>
-              <button class="secondary" onclick="clearBulkReturnQueue()">Clear Queue</button>
-              <button class="return-button" onclick="submitBulkReturns()">Return All</button>
-            </div>
-            <div id="bulk-return-list" class="bulk-return-list"></div>
-            <p id="bulk-return-result" class="result"></p>
-          </div>
-        </div>
+      <div class="card">
+        <h3>Books</h3>
+        <table id="books-table"></table>
       </div>
     </section>
   </main>
-
-  <div id="book-modal" class="modal" hidden>
-    <div class="modal-backdrop" onclick="closeBookModal()"></div>
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-      <button class="modal-close" onclick="closeBookModal()">×</button>
-      <div id="book-modal-content"></div>
-    </div>
-  </div>
-
-  <div id="scanner-modal" class="modal" hidden>
-    <div class="modal-backdrop" onclick="closeBarcodeScanner()"></div>
-    <div class="modal-card scanner-card" role="dialog" aria-modal="true">
-      <button class="modal-close" onclick="closeBarcodeScanner()">×</button>
-      <h2>Scan Barcode</h2>
-      <p id="scanner-help">Point your phone camera at the barcode.</p>
-      <video id="scanner-video" playsinline muted></video>
-      <p id="scanner-result" class="result"></p>
-    </div>
-  </div>
 
   <script src="/static/app.js"></script>
 </body>
