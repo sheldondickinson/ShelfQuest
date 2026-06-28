@@ -1,78 +1,58 @@
-# ShelfQuest v0.1.7
+# ShelfQuest v0.1.8 - HTTPS Proxy Update
 
-Home library app for kids and tired adults.
+This build keeps the app itself simple and adds a small Nginx reverse proxy in front of it.
 
-## New in v0.1.7
+## Ports
 
-- Admin book list pagination.
-- More mobile-responsive admin and kid screens.
-- Camera scan buttons beside barcode/ISBN scan fields.
-- Child photos, including upload/edit through Admin.
-- Visual child picker cards in Kid Kiosk.
-- Admin password gate.
+- HTTP: `http://<qnap-ip>:8123`
+- HTTPS: `https://<qnap-ip>:8443`
 
-## Admin password
+## Certificate
 
-Default password is configured in `docker-compose.yml`:
+A self-signed certificate is generated automatically on first start and stored in:
 
-```yaml
-ADMIN_PASSWORD=Letmein!2
-```
+`./data/certs`
 
-The browser stores a temporary admin token in local storage after login. If the container restarts, login again.
-
-## Camera scanning note
-
-The camera scan button uses the browser's built-in BarcodeDetector API where available. Many mobile browsers require HTTPS before allowing camera access on a LAN-hosted web app. USB barcode scanners and manual typing continue to work.
+Because it is self-signed, browsers will show a privacy warning. This is expected.
 
 ## Upgrade
 
-1. Back up your database:
-
 ```bash
 cd /share/Container/shelfquest
-cp data/library.db data/library-before-v017-$(date +%Y%m%d-%H%M).db
-```
-
-2. Copy the contents of this folder over `/share/Container/shelfquest`.
-
-3. Do not delete the `data` folder.
-
-4. Rebuild:
-
-```bash
+cp data/library.db data/library-before-v018-$(date +%Y%m%d-%H%M).db
 docker compose down
 docker compose up -d --build
 ```
 
-5. Hard refresh your browser:
+After the first build, open:
 
-```text
-Ctrl + F5
+`https://<qnap-ip>:8443`
+
+Accept the browser warning if prompted.
+
+## Optional: include your QNAP IP in the generated self-signed certificate
+
+Before the first HTTPS start, edit `docker-compose.yml` and change:
+
+```yaml
+- CERT_ALT_NAMES=DNS:shelfquest.local,DNS:localhost,IP:127.0.0.1
 ```
 
-## Data folders
+For example:
 
-The app stores persistent data in `/data` inside the container, mounted from `./data` on the QNAP.
+```yaml
+- CERT_ALT_NAMES=DNS:shelfquest.local,DNS:localhost,IP:127.0.0.1,IP:192.168.1.50
+```
 
-- SQLite database: `/data/library.db`
-- Book covers: `/data/covers`
-- Child photos: `/data/children`
+If a certificate was already generated, delete the old cert files and restart:
 
-## API protection
+```bash
+rm -f data/certs/shelfquest.crt data/certs/shelfquest.key
+docker compose up -d --build
+```
 
-Kid functions remain open on the local LAN:
+## Notes
 
-- Child list
-- Book list/search
-- Checkout
-- Return
-- Active loans
-
-Admin changes require the admin token:
-
-- Add/edit child
-- Upload child photo
-- Add/edit/delete book
-- Upload/cache covers
-- Mark damaged/repaired
+- Existing `docker exec -it shelfquest ...` importer commands still work.
+- The admin password remains `Letmein!2`.
+- Camera barcode scanning still depends on browser support and whether the browser accepts the page as a secure context.
