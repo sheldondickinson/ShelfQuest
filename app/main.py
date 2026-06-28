@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 DB_PATH = os.getenv("LIBRARY_DB", "/data/library.db")
 DEFAULT_LOAN_DAYS = int(os.getenv("DEFAULT_LOAN_DAYS", "7"))
 APP_DIR = Path(__file__).resolve().parent
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
 COVERS_DIR = Path(os.getenv("COVERS_DIR", "/data/covers"))
 CHILDREN_DIR = Path(os.getenv("CHILDREN_DIR", "/data/children"))
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "Letmein!2")

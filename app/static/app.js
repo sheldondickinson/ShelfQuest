@@ -1,6 +1,7 @@
 let booksCache = [];
 let childrenCache = [];
 let kidSearchCache = [];
+let loansCache = [];
 let currentBookPage = 1;
 let bookPageSize = 25;
 let scannerStream = null;
@@ -25,7 +26,23 @@ function adminUnlocked() {
 function showTab(id) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById(id).classList.add('active');
+  document.body.dataset.mode = id;
   if (id === 'admin') updateAdminLockState();
+}
+
+function openAdminSettings() {
+  showTab('admin');
+  updateAdminLockState();
+  if (adminUnlocked()) showAdminView(currentAdminView || 'books');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function adminKiosk() {
+  localStorage.removeItem('shelfquest_admin_token');
+  updateAdminLockState();
+  showTab('kiosk');
+  showKidView(currentKidView || 'borrow');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function setViewButtons(scope, activeName) {
@@ -55,6 +72,7 @@ function showAdminView(name) {
   if (name === 'books') refreshBooks();
   if (name === 'children') refreshChildren();
   if (name === 'returns') {
+    refreshLoans();
     renderBulkReturnQueue();
     document.getElementById('bulk-return-book')?.focus();
   }
@@ -131,8 +149,7 @@ async function adminLogin() {
 }
 
 function adminLogout() {
-  localStorage.removeItem('shelfquest_admin_token');
-  updateAdminLockState();
+  adminKiosk();
 }
 
 function updateAdminLockState() {
@@ -397,9 +414,14 @@ function changeBookPageSize() {
 
 async function refreshLoans() {
   const rows = await api('/api/loans');
-  const html = ['<tr><th>Reader</th><th>Book</th><th>Due</th><th>Barcode</th></tr>']
-    .concat(rows.map(r => `<tr><td>${escapeHtml(r.child)}</td><td>📖 ${escapeHtml(r.title)}</td><td>${escapeHtml((r.due_at || '').slice(0,10))}</td><td>${escapeHtml(r.barcode)}</td></tr>`));
-  document.getElementById('loans-table').innerHTML = html.join('');
+  loansCache = rows;
+  const loansTable = document.getElementById('loans-table');
+  if (loansTable) {
+    const html = ['<tr><th>Reader</th><th>Book</th><th>Due</th><th>Barcode</th></tr>']
+      .concat(rows.map(r => `<tr><td>${escapeHtml(r.child)}</td><td>📖 ${escapeHtml(r.title)}</td><td>${escapeHtml((r.due_at || '').slice(0,10))}</td><td>${escapeHtml(r.barcode)}</td></tr>`));
+    loansTable.innerHTML = html.join('');
+  }
+  renderBulkLoansList();
 }
 
 function editBook(bookId, copyId) {
@@ -578,6 +600,57 @@ function closeBookModal() {
   document.getElementById('book-modal').hidden = true;
 }
 
+
+
+function renderBulkLoansList() {
+  const target = document.getElementById('bulk-loans-list');
+  if (!target) return;
+  if (!loansCache.length) {
+    target.innerHTML = '<p class="kid-hint">No books are currently out. Nothing to return.</p>';
+    return;
+  }
+  target.innerHTML = `
+    <div class="bulk-loans-header">
+      <strong>${loansCache.length} book(s) currently out</strong>
+      <span>Tick the ones in the returns pile.</span>
+    </div>
+    <div class="bulk-loans-grid">
+      ${loansCache.map((loan, idx) => `
+        <label class="bulk-loan-item">
+          <input type="checkbox" class="bulk-loan-check" value="${escapeHtml(loan.barcode)}" />
+          <span class="bulk-loan-main">
+            <strong>${escapeHtml(loan.title)}</strong>
+            <small>Borrowed by ${escapeHtml(loan.child)} · Due ${escapeHtml((loan.due_at || '').slice(0,10))}</small>
+            <code>${escapeHtml(loan.barcode)}</code>
+          </span>
+        </label>
+      `).join('')}
+    </div>
+  `;
+}
+
+function selectAllBulkLoans(checked) {
+  document.querySelectorAll('.bulk-loan-check').forEach(cb => { cb.checked = checked; });
+}
+
+async function submitSelectedBulkReturns() {
+  const codes = Array.from(document.querySelectorAll('.bulk-loan-check:checked')).map(cb => cb.value).filter(Boolean);
+  if (!codes.length) return setResult('bulk-return-result', 'Tick at least one borrowed book first.', false);
+  try {
+    const r = await api('/api/returns/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ book_codes: codes })
+    });
+    const returned = r.returned || [];
+    const failed = r.failed || [];
+    const returnedText = returned.length ? `Returned ${returned.length}: ${returned.map(x => '“' + x.title + '”').join(', ')}.` : 'No books returned.';
+    const failedText = failed.length ? ` ${failed.length} failed.` : '';
+    setResult('bulk-return-result', returnedText + failedText, !failed.length);
+    await refreshAll();
+  } catch (e) {
+    setResult('bulk-return-result', e.message, false);
+  }
+}
 
 function addBulkReturnFromInput() {
   const input = document.getElementById('bulk-return-book');
@@ -813,9 +886,9 @@ async function refreshAll() {
 }
 
 window.addEventListener('load', () => {
+  document.body.dataset.mode = 'kiosk';
   updateAdminLockState();
   showKidView(currentKidView);
-  showAdminView(currentAdminView);
   refreshAll();
 
   ['borrow-book', 'return-book', 'isbn', 'kid-search', 'admin-password', 'bulk-return-book'].forEach(id => {

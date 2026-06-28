@@ -7,30 +7,18 @@
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-  <header class="topbar">
+  <header class="app-hero">
+    <button class="settings-cog" type="button" title="Settings" aria-label="Open admin settings" onclick="openAdminSettings()">⚙</button>
     <div>
       <h1>📚 ShelfQuest</h1>
-      <p>Home library borrowing for small humans and tired adults.</p>
+      <p>Choose your reader, find your next book, and start your reading quest.</p>
     </div>
-    <div class="version">v0.2.0</div>
+    <div class="kid-emoji hero-emoji">🦄 🚀 🐉</div>
+    <div class="version">v0.2.1</div>
   </header>
-
-  <nav class="main-nav">
-    <button onclick="showTab('kiosk')">Kid Kiosk</button>
-    <button onclick="showTab('admin')">Admin</button>
-    <button onclick="refreshAll()">Refresh</button>
-  </nav>
 
   <main>
     <section id="kiosk" class="tab active kid-world">
-      <div class="kid-hero">
-        <div>
-          <h2>ShelfQuest</h2>
-          <p>Choose your reader, find your next book, and start your reading quest.</p>
-        </div>
-        <div class="kid-emoji">🦄 🚀 🐉</div>
-      </div>
-
       <div class="view-nav kid-view-nav">
         <button class="view-nav-button active" data-view="kid-borrow" onclick="showKidView('borrow')">✨ Borrow</button>
         <button class="view-nav-button" data-view="kid-return" onclick="showKidView('return')">📦 Return</button>
@@ -124,7 +112,7 @@
       <div id="admin-content" hidden>
         <div class="card-heading admin-heading">
           <h2>Admin</h2>
-          <button class="secondary" onclick="adminLogout()">Lock Admin</button>
+          <button class="secondary" onclick="adminKiosk()">Kiosk</button>
         </div>
 
         <div class="view-nav admin-view-nav">
@@ -312,18 +300,28 @@
         <div id="admin-view-returns" class="view-panel">
           <div class="card">
             <h3>Parent Bulk Returns</h3>
-            <p>This is admin-only. Scan returned books into a queue, then return them all in one batch.</p>
-            <label>Book barcode</label>
-            <div class="scan-input-row">
-              <input id="bulk-return-book" placeholder="Scan a returned book" autocomplete="off" />
-              <button class="scan-button" type="button" title="Scan with camera" onclick="openBarcodeScanner('bulk-return-book', addBulkReturnFromInput)">📷</button>
+            <p>This is admin-only. Tick the books that came back, then return them as one batch.</p>
+            <div class="bulk-toolbar">
+              <button class="small secondary" onclick="selectAllBulkLoans(true)">Select all</button>
+              <button class="small secondary" onclick="selectAllBulkLoans(false)">Clear selection</button>
+              <button class="return-button" onclick="submitSelectedBulkReturns()">Return Selected</button>
             </div>
-            <div class="inline-actions">
-              <button onclick="addBulkReturnFromInput()">Add to Return Queue</button>
-              <button class="secondary" onclick="clearBulkReturnQueue()">Clear Queue</button>
-              <button class="return-button" onclick="submitBulkReturns()">Return All</button>
-            </div>
-            <div id="bulk-return-list" class="bulk-return-list"></div>
+            <div id="bulk-loans-list" class="bulk-loans-list"></div>
+            <hr class="soft-divider" />
+            <details>
+              <summary>Scan returned books instead</summary>
+              <label>Book barcode</label>
+              <div class="scan-input-row">
+                <input id="bulk-return-book" placeholder="Scan a returned book" autocomplete="off" />
+                <button class="scan-button" type="button" title="Scan with camera" onclick="openBarcodeScanner('bulk-return-book', addBulkReturnFromInput)">📷</button>
+              </div>
+              <div class="inline-actions">
+                <button onclick="addBulkReturnFromInput()">Add to Return Queue</button>
+                <button class="secondary" onclick="clearBulkReturnQueue()">Clear Queue</button>
+                <button class="return-button" onclick="submitBulkReturns()">Return Queued</button>
+              </div>
+              <div id="bulk-return-list" class="bulk-return-list"></div>
+            </details>
             <p id="bulk-return-result" class="result"></p>
           </div>
         </div>

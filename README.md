@@ -1,44 +1,23 @@
-# ShelfQuest v0.2.0
+# ShelfQuest v0.2.1
 
-This update improves the real-world flow after phone-camera testing.
+Small UI and parent workflow polish.
 
-## Added / changed
+## Changes
 
-- Camera scanner now force-releases prior camera sessions before opening a new one.
-- Repeated phone scans in the same browser tab should now work more reliably, especially on iOS Safari.
-- Kid Kiosk now has separate action views: Borrow, Return, Find, Reading.
-- Admin now has separate action views: Books, Add Book, Children, Bulk Returns.
-- Saving a book edit closes the edit form and returns to the book list.
-- Saving a child edit closes the edit form and returns to the children list.
-- Added admin-only bulk returns.
-
-## Bulk returns
-
-Bulk returns are only available after Admin unlock. Kids still have the normal single-book return flow in the Kid Kiosk, but the batch return queue is not exposed there.
+- Replaces the old dark title bar with the purple/blue ShelfQuest hero header at the very top.
+- Removes the large Kid Kiosk/Admin/Refresh buttons.
+- Adds a subtle settings cog in the top-right corner to enter Admin.
+- Changes the Admin heading action to **Kiosk**, which locks Admin and returns to the Kid Kiosk.
+- Updates Admin Bulk Returns to list all currently borrowed books with checkboxes, including who has each book.
+- Keeps the scan-based bulk return queue available behind a collapsible section.
 
 ## Upgrade
 
-1. Back up the database:
-
 ```bash
 cd /share/Container/shelfquest
-cp data/library.db data/library-before-v020-$(date +%Y%m%d-%H%M).db
-```
-
-2. Copy the contents of `shelfquest_v020/` over `/share/Container/shelfquest/`.
-
-Do not delete the `data` folder.
-
-3. Rebuild:
-
-```bash
-cd /share/Container/shelfquest
+cp data/library.db data/library-before-v021-$(date +%Y%m%d-%H%M).db
 docker compose down
 docker compose up -d --build
 ```
 
-4. Hard refresh the browser.
-
-On desktop: `Ctrl + F5`.
-
-On iPhone/iPad: close the tab, reopen `https://<qnap-ip>:8443`, and accept the self-signed certificate warning if prompted.
+After copying the v0.2.1 files over the existing app folder, hard refresh the browser. On iPhone/iPad, close and reopen the tab if Safari holds onto the old JS/CSS.

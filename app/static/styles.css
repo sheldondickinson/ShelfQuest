@@ -632,3 +632,148 @@ th { background: #f8fafc; }
     top: 56px;
   }
 }
+
+/* v0.2.1 header/settings/bulk-return polish */
+.app-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 18px;
+  align-items: end;
+  background: linear-gradient(135deg, #845ef7, #339af0);
+  color: white;
+  padding: clamp(24px, 6vw, 56px);
+  border-radius: 0 0 32px 32px;
+  box-shadow: 0 10px 30px rgba(51, 154, 240, .25);
+}
+.app-hero h1 {
+  font-size: clamp(46px, 9vw, 88px);
+  line-height: .95;
+  margin: 0;
+  letter-spacing: -0.05em;
+}
+.app-hero p {
+  font-size: clamp(22px, 4.2vw, 44px);
+  line-height: 1.25;
+  margin: 18px 0 0;
+  max-width: 900px;
+  opacity: .95;
+}
+.app-hero .version {
+  position: absolute;
+  left: clamp(24px, 6vw, 56px);
+  bottom: 14px;
+  opacity: .35;
+  font-size: 14px;
+}
+.settings-cog {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(255,255,255,.18);
+  color: white;
+  font-size: 22px;
+  line-height: 1;
+  box-shadow: none;
+  opacity: .62;
+}
+.settings-cog:hover,
+.settings-cog:focus {
+  opacity: 1;
+  background: rgba(255,255,255,.28);
+  filter: none;
+}
+.hero-emoji {
+  align-self: center;
+  font-size: clamp(34px, 6vw, 76px);
+}
+main { padding-top: 20px; }
+.kid-world {
+  margin-top: 0;
+  min-height: calc(100vh - 250px);
+}
+.admin-view-nav {
+  top: 0;
+}
+.soft-divider {
+  border: 0;
+  border-top: 1px solid #e2e8f0;
+  margin: 18px 0;
+}
+.bulk-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 12px 0 14px;
+}
+.bulk-toolbar .return-button {
+  width: auto;
+  margin-top: 0;
+}
+.bulk-loans-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 0;
+  color: #334155;
+}
+.bulk-loans-grid {
+  display: grid;
+  gap: 10px;
+}
+.bulk-loan-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: center;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+  cursor: pointer;
+}
+.bulk-loan-item input {
+  width: 26px;
+  height: 26px;
+}
+.bulk-loan-main {
+  display: grid;
+  gap: 3px;
+}
+.bulk-loan-main small {
+  color: #64748b;
+  font-weight: 700;
+}
+.bulk-loan-main code {
+  color: #334155;
+  background: #e2e8f0;
+  border-radius: 8px;
+  padding: 3px 6px;
+  width: fit-content;
+}
+details summary {
+  cursor: pointer;
+  font-weight: 900;
+  color: #334155;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 700px) {
+  .app-hero {
+    grid-template-columns: 1fr;
+    padding: 34px 20px 36px;
+    border-radius: 0 0 24px 24px;
+  }
+  .hero-emoji { font-size: 42px; }
+  .settings-cog { right: 10px; top: 10px; }
+  main { padding-top: 12px; }
+  .kid-world { margin-top: 0; }
+  .bulk-loans-header { display: grid; }
+}
