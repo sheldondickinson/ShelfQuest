@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 DB_PATH = os.getenv("LIBRARY_DB", "/data/library.db")
 DEFAULT_LOAN_DAYS = int(os.getenv("DEFAULT_LOAN_DAYS", "7"))
 APP_DIR = Path(__file__).resolve().parent
-APP_VERSION = "0.1.7"
+APP_VERSION = "0.2.0"
 COVERS_DIR = Path(os.getenv("COVERS_DIR", "/data/covers"))
 CHILDREN_DIR = Path(os.getenv("CHILDREN_DIR", "/data/children"))
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "Letmein!2")
@@ -221,6 +221,10 @@ class CheckoutIn(BaseModel):
 
 class ReturnIn(BaseModel):
     book_code: str
+
+
+class BulkReturnIn(BaseModel):
+    book_codes: list[str] = Field(default_factory=list)
 
 
 def rows_to_dicts(rows):
@@ -872,36 +876,69 @@ def checkout(payload: CheckoutIn):
     }
 
 
+def return_one_book(conn: sqlite3.Connection, book_code: str):
+    copy = resolve_book_copy(conn, book_code)
+    if not copy:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    loan = conn.execute(
+        """
+        SELECT l.*, c.name AS child_name
+        FROM loans l
+        JOIN children c ON c.id = l.child_id
+        WHERE l.book_copy_id = ? AND l.status = 'active'
+        """,
+        (copy["id"],),
+    ).fetchone()
+    if not loan:
+        raise HTTPException(status_code=409, detail="This book is not currently borrowed")
+
+    conn.execute(
+        "UPDATE loans SET returned_at = ?, status = 'returned' WHERE id = ?",
+        (now_iso(), loan["id"]),
+    )
+    conn.execute("UPDATE book_copies SET status = 'available', updated_at = ? WHERE id = ?", (now_iso(), copy["id"]))
+    conn.execute(
+        "INSERT INTO events(event_type, child_id, book_copy_id, notes, created_at) VALUES (?, ?, ?, ?, ?)",
+        ("return", loan["child_id"], copy["id"], copy["title"], now_iso()),
+    )
+    return {"ok": True, "title": copy["title"], "returned_from": loan["child_name"], "book_code": book_code.strip()}
+
+
 @app.post("/api/return")
 def return_book(payload: ReturnIn):
     with db() as conn:
-        copy = resolve_book_copy(conn, payload.book_code)
-        if not copy:
-            raise HTTPException(status_code=404, detail="Book not found")
+        return return_one_book(conn, payload.book_code)
 
-        loan = conn.execute(
-            """
-            SELECT l.*, c.name AS child_name
-            FROM loans l
-            JOIN children c ON c.id = l.child_id
-            WHERE l.book_copy_id = ? AND l.status = 'active'
-            """,
-            (copy["id"],),
-        ).fetchone()
-        if not loan:
-            raise HTTPException(status_code=409, detail="This book is not currently borrowed")
+
+@app.post("/api/returns/bulk")
+def bulk_return_books(payload: BulkReturnIn, _admin: bool = Depends(require_admin)):
+    returned = []
+    failed = []
+    seen = set()
+    codes = [str(code or "").strip() for code in payload.book_codes]
+    codes = [code for code in codes if code]
+    if not codes:
+        raise HTTPException(status_code=400, detail="No book barcodes supplied")
+
+    with db() as conn:
+        for code in codes:
+            if code in seen:
+                continue
+            seen.add(code)
+            try:
+                returned.append(return_one_book(conn, code))
+            except HTTPException as exc:
+                failed.append({"book_code": code, "error": exc.detail})
+            except Exception as exc:
+                failed.append({"book_code": code, "error": str(exc)[:180]})
 
         conn.execute(
-            "UPDATE loans SET returned_at = ?, status = 'returned' WHERE id = ?",
-            (now_iso(), loan["id"]),
-        )
-        conn.execute("UPDATE book_copies SET status = 'available', updated_at = ? WHERE id = ?", (now_iso(), copy["id"]))
-        conn.execute(
-            "INSERT INTO events(event_type, child_id, book_copy_id, notes, created_at) VALUES (?, ?, ?, ?, ?)",
-            ("return", loan["child_id"], copy["id"], copy["title"], now_iso()),
+            "INSERT INTO events(event_type, notes, created_at) VALUES (?, ?, ?)",
+            ("bulk_return", f"returned={len(returned)}, failed={len(failed)}", now_iso()),
         )
 
-    return {"ok": True, "title": copy["title"], "returned_from": loan["child_name"]}
+    return {"ok": True, "returned": returned, "failed": failed}
 
 
 @app.get("/api/loans")

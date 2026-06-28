@@ -1,36 +1,44 @@
-# ShelfQuest v0.1.9 - Safari camera barcode fallback
+# ShelfQuest v0.2.0
 
-This version keeps the self-signed HTTPS proxy from v0.1.8 and changes camera barcode scanning so iPhone/iPad Safari can use a JavaScript scanner fallback when the native `BarcodeDetector` API is unavailable.
+This update improves the real-world flow after phone-camera testing.
 
-## What changed
+## Added / changed
 
-- Native `BarcodeDetector` still used where available.
-- Safari/iOS fallback added using ZXing Browser from jsDelivr CDN.
-- Same scan buttons and fields remain unchanged.
+- Camera scanner now force-releases prior camera sessions before opening a new one.
+- Repeated phone scans in the same browser tab should now work more reliably, especially on iOS Safari.
+- Kid Kiosk now has separate action views: Borrow, Return, Find, Reading.
+- Admin now has separate action views: Books, Add Book, Children, Bulk Returns.
+- Saving a book edit closes the edit form and returns to the book list.
+- Saving a child edit closes the edit form and returns to the children list.
+- Added admin-only bulk returns.
 
-## Important
+## Bulk returns
 
-The fallback library is loaded from:
-
-```text
-https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js
-```
-
-Your phone needs internet access the first time the scanner loads. A later version can bundle the library locally if required.
+Bulk returns are only available after Admin unlock. Kids still have the normal single-book return flow in the Kid Kiosk, but the batch return queue is not exposed there.
 
 ## Upgrade
 
+1. Back up the database:
+
 ```bash
 cd /share/Container/shelfquest
-cp data/library.db data/library-before-v019-$(date +%Y%m%d-%H%M).db
+cp data/library.db data/library-before-v020-$(date +%Y%m%d-%H%M).db
+```
+
+2. Copy the contents of `shelfquest_v020/` over `/share/Container/shelfquest/`.
+
+Do not delete the `data` folder.
+
+3. Rebuild:
+
+```bash
+cd /share/Container/shelfquest
 docker compose down
 docker compose up -d --build
 ```
 
-Then open:
+4. Hard refresh the browser.
 
-```text
-https://<qnap-ip>:8443
-```
+On desktop: `Ctrl + F5`.
 
-Accept the self-signed certificate warning if prompted and allow camera access.
+On iPhone/iPad: close the tab, reopen `https://<qnap-ip>:8443`, and accept the self-signed certificate warning if prompted.

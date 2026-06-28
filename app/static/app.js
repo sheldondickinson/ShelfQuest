@@ -9,6 +9,10 @@ let scannerTargetInputId = null;
 let scannerAfterScan = null;
 let scannerControls = null;
 let zxingReader = null;
+let scannerCompleted = false;
+let bulkReturnCodes = [];
+let currentKidView = 'borrow';
+let currentAdminView = 'books';
 
 function adminToken() {
   return localStorage.getItem('shelfquest_admin_token') || '';
@@ -22,6 +26,38 @@ function showTab(id) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   if (id === 'admin') updateAdminLockState();
+}
+
+function setViewButtons(scope, activeName) {
+  document.querySelectorAll(`.${scope}-view-nav .view-nav-button`).forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.view === `${scope}-${activeName}`);
+  });
+}
+
+function showKidView(name) {
+  currentKidView = name;
+  document.querySelectorAll('#kiosk .view-panel').forEach(p => p.classList.remove('active'));
+  const panel = document.getElementById('kid-view-' + name);
+  if (panel) panel.classList.add('active');
+  setViewButtons('kid', name);
+  if (name === 'loans') refreshLoans();
+  if (name === 'borrow') document.getElementById('borrow-book')?.focus();
+  if (name === 'return') document.getElementById('return-book')?.focus();
+  if (name === 'search') document.getElementById('kid-search')?.focus();
+}
+
+function showAdminView(name) {
+  currentAdminView = name;
+  document.querySelectorAll('#admin-content > .view-panel').forEach(p => p.classList.remove('active'));
+  const panel = document.getElementById('admin-view-' + name);
+  if (panel) panel.classList.add('active');
+  setViewButtons('admin', name);
+  if (name === 'books') refreshBooks();
+  if (name === 'children') refreshChildren();
+  if (name === 'returns') {
+    renderBulkReturnQueue();
+    document.getElementById('bulk-return-book')?.focus();
+  }
 }
 
 async function api(path, opts = {}) {
@@ -85,6 +121,7 @@ async function adminLogin() {
     document.getElementById('admin-password').value = '';
     setResult('admin-login-result', 'Admin unlocked.');
     updateAdminLockState();
+    showAdminView('books');
     await refreshAll();
   } catch (e) {
     localStorage.removeItem('shelfquest_admin_token');
@@ -155,6 +192,8 @@ async function addBook() {
     await api('/api/books', { method: 'POST', body: JSON.stringify(payload) });
     setResult('book-result', 'Book added.');
     await refreshAll();
+    showAdminView('books');
+    setResult('books-result', 'Book added.');
   } catch (e) { setResult('book-result', e.message, false); }
 }
 
@@ -234,6 +273,7 @@ async function refreshChildren() {
 function editChild(childId) {
   const r = childrenCache.find(x => x.id === childId);
   if (!r) return;
+  showAdminView('children');
   document.getElementById('edit-child-id').value = r.id;
   document.getElementById('edit-child-name').value = r.name || '';
   document.getElementById('edit-child-barcode').value = r.barcode || '';
@@ -261,8 +301,10 @@ async function saveChildEdit() {
       active: Number(document.getElementById('edit-child-active').value || 1)
     };
     await api('/api/children/' + childId, { method: 'PUT', body: JSON.stringify(payload) });
-    setResult('edit-child-result', 'Child updated.');
+    setResult('child-result', 'Child updated.');
+    document.getElementById('edit-child-card').hidden = true;
     await refreshChildren();
+    showAdminView('children');
   } catch (e) { setResult('edit-child-result', e.message, false); }
 }
 
@@ -361,6 +403,7 @@ async function refreshLoans() {
 }
 
 function editBook(bookId, copyId) {
+  showAdminView('books');
   const r = booksCache.find(x => x.book_id === bookId && x.copy_id === copyId);
   if (!r) return;
   document.getElementById('edit-book-id').value = r.book_id;
@@ -407,8 +450,11 @@ async function saveEdit() {
       condition_note: document.getElementById('edit-condition-note').value
     };
     await api('/api/books/' + bookId, { method: 'PUT', body: JSON.stringify(payload) });
-    setResult('edit-result', 'Book updated.');
+    document.getElementById('edit-card').hidden = true;
     await refreshBooks();
+    showAdminView('books');
+    setResult('books-result', 'Book updated.');
+    document.getElementById('books-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) { setResult('edit-result', e.message, false); }
 }
 
@@ -532,7 +578,69 @@ function closeBookModal() {
   document.getElementById('book-modal').hidden = true;
 }
 
+
+function addBulkReturnFromInput() {
+  const input = document.getElementById('bulk-return-book');
+  const code = input?.value?.trim() || '';
+  if (!code) return setResult('bulk-return-result', 'Scan or enter a barcode first.', false);
+  if (!bulkReturnCodes.includes(code)) bulkReturnCodes.push(code);
+  if (input) {
+    input.value = '';
+    input.focus();
+  }
+  renderBulkReturnQueue();
+  setResult('bulk-return-result', `${bulkReturnCodes.length} book(s) queued for return.`);
+}
+
+function removeBulkReturnCode(index) {
+  bulkReturnCodes.splice(index, 1);
+  renderBulkReturnQueue();
+}
+
+function clearBulkReturnQueue() {
+  bulkReturnCodes = [];
+  renderBulkReturnQueue();
+  setResult('bulk-return-result', 'Return queue cleared.');
+}
+
+function renderBulkReturnQueue() {
+  const target = document.getElementById('bulk-return-list');
+  if (!target) return;
+  if (!bulkReturnCodes.length) {
+    target.innerHTML = '<p class="kid-hint">No books queued yet.</p>';
+    return;
+  }
+  target.innerHTML = `
+    <table>
+      <tr><th>#</th><th>Barcode</th><th>Action</th></tr>
+      ${bulkReturnCodes.map((code, idx) => `<tr><td>${idx + 1}</td><td>${escapeHtml(code)}</td><td><button class="small danger" onclick="removeBulkReturnCode(${idx})">Remove</button></td></tr>`).join('')}
+    </table>
+  `;
+}
+
+async function submitBulkReturns() {
+  if (!bulkReturnCodes.length) return setResult('bulk-return-result', 'No books queued.', false);
+  try {
+    const r = await api('/api/returns/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ book_codes: bulkReturnCodes })
+    });
+    const returned = r.returned || [];
+    const failed = r.failed || [];
+    bulkReturnCodes = failed.map(x => x.book_code);
+    renderBulkReturnQueue();
+    const returnedText = returned.length ? `Returned ${returned.length}: ${returned.map(x => '“' + x.title + '”').join(', ')}.` : 'No books returned.';
+    const failedText = failed.length ? ` ${failed.length} failed and remain queued.` : '';
+    setResult('bulk-return-result', returnedText + failedText, !failed.length);
+    await refreshAll();
+  } catch (e) {
+    setResult('bulk-return-result', e.message, false);
+  }
+}
+
 function completeBarcodeScan(value) {
+  if (scannerCompleted) return;
+  scannerCompleted = true;
   const scanned = String(value || '').trim();
   if (!scanned) return;
   const input = document.getElementById(scannerTargetInputId);
@@ -540,8 +648,10 @@ function completeBarcodeScan(value) {
     input.value = scanned;
     input.dispatchEvent(new Event('input', { bubbles: true }));
   }
+  const after = scannerAfterScan;
+  scannerAfterScan = null;
   closeBarcodeScanner();
-  if (typeof scannerAfterScan === 'function') scannerAfterScan();
+  if (typeof after === 'function') setTimeout(after, 150);
 }
 
 function loadScriptOnce(src, globalCheck) {
@@ -604,7 +714,7 @@ async function startZxingBarcodeScanner(video, result, help) {
     { video: { facingMode: { ideal: 'environment' } }, audio: false },
     video,
     (scanResult, error, controls) => {
-      if (scanResult) {
+      if (scanResult && !scannerCompleted) {
         scannerControls = controls || scannerControls;
         completeBarcodeScan(scanResult.getText());
       }
@@ -613,8 +723,16 @@ async function startZxingBarcodeScanner(video, result, help) {
 }
 
 async function openBarcodeScanner(targetInputId, afterScan = null) {
+  // Always release any previous camera session before opening a new one. This is
+  // especially important on iOS Safari, which can otherwise leave a stale stream
+  // attached to the tab after the first successful scan.
+  closeBarcodeScanner(true);
+  await new Promise(resolve => setTimeout(resolve, 120));
+
   scannerTargetInputId = targetInputId;
   scannerAfterScan = afterScan;
+  scannerCompleted = false;
+
   const modal = document.getElementById('scanner-modal');
   const video = document.getElementById('scanner-video');
   const result = document.getElementById('scanner-result');
@@ -638,30 +756,52 @@ async function openBarcodeScanner(targetInputId, afterScan = null) {
   } catch (e) {
     help.textContent = 'Could not start camera scanning. Use HTTPS, allow camera access, or use the USB scanner/manual entry.';
     result.textContent = e.message || 'Camera scanner failed.';
+    closeBarcodeScanner(true);
+    modal.hidden = false;
   }
 }
 
-function closeBarcodeScanner() {
+function closeBarcodeScanner(keepModalClosed = false) {
   if (scannerLoop) cancelAnimationFrame(scannerLoop);
   scannerLoop = null;
+
   if (scannerControls?.stop) {
     try { scannerControls.stop(); } catch (e) { console.warn(e); }
   }
   scannerControls = null;
+
   if (zxingReader?.reset) {
     try { zxingReader.reset(); } catch (e) { console.warn(e); }
   }
+  zxingReader = null;
+
   const video = document.getElementById('scanner-video');
   if (video) {
     try { video.pause(); } catch (e) {}
+    const stream = video.srcObject;
+    if (stream?.getTracks) {
+      stream.getTracks().forEach(track => {
+        try { track.stop(); } catch (e) { console.warn(e); }
+      });
+    }
     video.srcObject = null;
+    try { video.load(); } catch (e) {}
   }
+
   if (scannerStream) {
-    scannerStream.getTracks().forEach(track => track.stop());
+    scannerStream.getTracks().forEach(track => {
+      try { track.stop(); } catch (e) { console.warn(e); }
+    });
     scannerStream = null;
   }
-  const modal = document.getElementById('scanner-modal');
-  if (modal) modal.hidden = true;
+
+  if (!keepModalClosed) {
+    const modal = document.getElementById('scanner-modal');
+    if (modal) modal.hidden = true;
+  } else {
+    const modal = document.getElementById('scanner-modal');
+    if (modal) modal.hidden = true;
+  }
 }
 
 async function refreshAll() {
@@ -674,9 +814,11 @@ async function refreshAll() {
 
 window.addEventListener('load', () => {
   updateAdminLockState();
+  showKidView(currentKidView);
+  showAdminView(currentAdminView);
   refreshAll();
 
-  ['borrow-book', 'return-book', 'isbn', 'kid-search', 'admin-password'].forEach(id => {
+  ['borrow-book', 'return-book', 'isbn', 'kid-search', 'admin-password', 'bulk-return-book'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('keydown', e => {
@@ -686,6 +828,7 @@ window.addEventListener('load', () => {
       if (id === 'isbn') lookupBook();
       if (id === 'kid-search') kidSearchBooks();
       if (id === 'admin-password') adminLogin();
+      if (id === 'bulk-return-book') addBulkReturnFromInput();
     });
   });
 
