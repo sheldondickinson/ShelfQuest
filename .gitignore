@@ -1,0 +1,22 @@
+# ShelfQuest runtime data
+/data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local certificates and generated covers
+certs/
+data/certs/
+data/covers/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
