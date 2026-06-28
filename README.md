@@ -1,58 +1,36 @@
-# ShelfQuest v0.1.8 - HTTPS Proxy Update
+# ShelfQuest v0.1.9 - Safari camera barcode fallback
 
-This build keeps the app itself simple and adds a small Nginx reverse proxy in front of it.
+This version keeps the self-signed HTTPS proxy from v0.1.8 and changes camera barcode scanning so iPhone/iPad Safari can use a JavaScript scanner fallback when the native `BarcodeDetector` API is unavailable.
 
-## Ports
+## What changed
 
-- HTTP: `http://<qnap-ip>:8123`
-- HTTPS: `https://<qnap-ip>:8443`
+- Native `BarcodeDetector` still used where available.
+- Safari/iOS fallback added using ZXing Browser from jsDelivr CDN.
+- Same scan buttons and fields remain unchanged.
 
-## Certificate
+## Important
 
-A self-signed certificate is generated automatically on first start and stored in:
+The fallback library is loaded from:
 
-`./data/certs`
+```text
+https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js
+```
 
-Because it is self-signed, browsers will show a privacy warning. This is expected.
+Your phone needs internet access the first time the scanner loads. A later version can bundle the library locally if required.
 
 ## Upgrade
 
 ```bash
 cd /share/Container/shelfquest
-cp data/library.db data/library-before-v018-$(date +%Y%m%d-%H%M).db
+cp data/library.db data/library-before-v019-$(date +%Y%m%d-%H%M).db
 docker compose down
 docker compose up -d --build
 ```
 
-After the first build, open:
+Then open:
 
-`https://<qnap-ip>:8443`
-
-Accept the browser warning if prompted.
-
-## Optional: include your QNAP IP in the generated self-signed certificate
-
-Before the first HTTPS start, edit `docker-compose.yml` and change:
-
-```yaml
-- CERT_ALT_NAMES=DNS:shelfquest.local,DNS:localhost,IP:127.0.0.1
+```text
+https://<qnap-ip>:8443
 ```
 
-For example:
-
-```yaml
-- CERT_ALT_NAMES=DNS:shelfquest.local,DNS:localhost,IP:127.0.0.1,IP:192.168.1.50
-```
-
-If a certificate was already generated, delete the old cert files and restart:
-
-```bash
-rm -f data/certs/shelfquest.crt data/certs/shelfquest.key
-docker compose up -d --build
-```
-
-## Notes
-
-- Existing `docker exec -it shelfquest ...` importer commands still work.
-- The admin password remains `Letmein!2`.
-- Camera barcode scanning still depends on browser support and whether the browser accepts the page as a secure context.
+Accept the self-signed certificate warning if prompted and allow camera access.

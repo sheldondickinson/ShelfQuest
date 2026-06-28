@@ -7,6 +7,8 @@ let scannerStream = null;
 let scannerLoop = null;
 let scannerTargetInputId = null;
 let scannerAfterScan = null;
+let scannerControls = null;
+let zxingReader = null;
 
 function adminToken() {
   return localStorage.getItem('shelfquest_admin_token') || '';
@@ -530,6 +532,86 @@ function closeBookModal() {
   document.getElementById('book-modal').hidden = true;
 }
 
+function completeBarcodeScan(value) {
+  const scanned = String(value || '').trim();
+  if (!scanned) return;
+  const input = document.getElementById(scannerTargetInputId);
+  if (input) {
+    input.value = scanned;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  closeBarcodeScanner();
+  if (typeof scannerAfterScan === 'function') scannerAfterScan();
+}
+
+function loadScriptOnce(src, globalCheck) {
+  if (globalCheck && globalCheck()) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const existing = Array.from(document.scripts).find(s => s.src === src);
+    if (existing) {
+      existing.addEventListener('load', resolve, { once: true });
+      existing.addEventListener('error', reject, { once: true });
+      if (globalCheck && globalCheck()) resolve();
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error('Could not load barcode scanner library.'));
+    document.head.appendChild(script);
+  });
+}
+
+async function startNativeBarcodeScanner(video, result, help) {
+  scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+  video.srcObject = scannerStream;
+  await video.play();
+  const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'codabar', 'qr_code'] });
+  help.textContent = 'Point your camera at the barcode. It will fill the field automatically.';
+
+  const tick = async () => {
+    if (!scannerStream) return;
+    try {
+      const codes = await detector.detect(video);
+      if (codes && codes.length) {
+        completeBarcodeScan(codes[0].rawValue || '');
+        return;
+      }
+    } catch (err) {
+      result.textContent = err.message || 'Scanning failed.';
+    }
+    scannerLoop = requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+async function startZxingBarcodeScanner(video, result, help) {
+  help.textContent = 'Loading Safari-compatible barcode scanner...';
+  await loadScriptOnce(
+    'https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js',
+    () => Boolean(window.ZXingBrowser?.BrowserMultiFormatReader)
+  );
+
+  if (!window.ZXingBrowser?.BrowserMultiFormatReader) {
+    throw new Error('ZXing barcode scanner library did not load.');
+  }
+
+  zxingReader = new window.ZXingBrowser.BrowserMultiFormatReader();
+  help.textContent = 'Point your camera at the barcode. Safari may take a few seconds to focus.';
+
+  scannerControls = await zxingReader.decodeFromConstraints(
+    { video: { facingMode: { ideal: 'environment' } }, audio: false },
+    video,
+    (scanResult, error, controls) => {
+      if (scanResult) {
+        scannerControls = controls || scannerControls;
+        completeBarcodeScan(scanResult.getText());
+      }
+    }
+  );
+}
+
 async function openBarcodeScanner(targetInputId, afterScan = null) {
   scannerTargetInputId = targetInputId;
   scannerAfterScan = afterScan;
@@ -539,58 +621,41 @@ async function openBarcodeScanner(targetInputId, afterScan = null) {
   const help = document.getElementById('scanner-help');
   modal.hidden = false;
   result.textContent = '';
-
-  if (!('BarcodeDetector' in window)) {
-    help.textContent = 'Camera barcode scanning is not available in this browser. Use a USB scanner, type the barcode, or try a Chromium-based browser over HTTPS.';
-    result.textContent = 'Barcode detector unavailable.';
-    return;
-  }
+  help.textContent = 'Starting camera scanner...';
 
   if (!navigator.mediaDevices?.getUserMedia) {
-    help.textContent = 'Camera access is not available. Mobile browsers often require HTTPS for camera scanning.';
+    help.textContent = 'Camera access is not available. Use HTTPS, grant camera permission, or use the USB scanner/manual entry.';
     result.textContent = 'Camera unavailable.';
     return;
   }
 
   try {
-    scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-    video.srcObject = scannerStream;
-    await video.play();
-    const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'codabar', 'qr_code'] });
-    help.textContent = 'Point your camera at the barcode. It will fill the field automatically.';
-
-    const tick = async () => {
-      if (!scannerStream) return;
-      try {
-        const codes = await detector.detect(video);
-        if (codes && codes.length) {
-          const value = codes[0].rawValue || '';
-          const input = document.getElementById(scannerTargetInputId);
-          if (input) {
-            input.value = value;
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-          }
-          closeBarcodeScanner();
-          if (typeof scannerAfterScan === 'function') scannerAfterScan();
-          return;
-        }
-      } catch (err) {
-        result.textContent = err.message || 'Scanning failed.';
-      }
-      scannerLoop = requestAnimationFrame(tick);
-    };
-    tick();
+    if ('BarcodeDetector' in window) {
+      await startNativeBarcodeScanner(video, result, help);
+    } else {
+      await startZxingBarcodeScanner(video, result, help);
+    }
   } catch (e) {
-    help.textContent = 'Could not open the camera. Try HTTPS, grant camera permission, or use the USB scanner/manual entry.';
-    result.textContent = e.message || 'Camera failed.';
+    help.textContent = 'Could not start camera scanning. Use HTTPS, allow camera access, or use the USB scanner/manual entry.';
+    result.textContent = e.message || 'Camera scanner failed.';
   }
 }
 
 function closeBarcodeScanner() {
   if (scannerLoop) cancelAnimationFrame(scannerLoop);
   scannerLoop = null;
+  if (scannerControls?.stop) {
+    try { scannerControls.stop(); } catch (e) { console.warn(e); }
+  }
+  scannerControls = null;
+  if (zxingReader?.reset) {
+    try { zxingReader.reset(); } catch (e) { console.warn(e); }
+  }
   const video = document.getElementById('scanner-video');
-  if (video) video.pause();
+  if (video) {
+    try { video.pause(); } catch (e) {}
+    video.srcObject = null;
+  }
   if (scannerStream) {
     scannerStream.getTracks().forEach(track => track.stop());
     scannerStream = null;
