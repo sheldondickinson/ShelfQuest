@@ -14,7 +14,7 @@
       <p>Choose your reader, find your next book, and start your reading quest.</p>
     </div>
     <div class="kid-emoji hero-emoji">🦄 🚀 🐉</div>
-    <div class="version">v0.2.1</div>
+    <div class="version">v0.2.3</div>
   </header>
 
   <main>
@@ -35,16 +35,19 @@
               <p>Choose your library card or scan it, then scan a book.</p>
             </div>
           </div>
-          <label>My library card</label>
-          <div id="kid-reader-pickers" class="reader-pickers"></div>
-          <select id="kid-child-select" class="kid-input compact-select">
-            <option value="">Choose your card</option>
-          </select>
-          <label>Or scan your library card</label>
-          <div class="scan-input-row">
-            <input id="borrow-child" class="kid-input kid-card-scan" placeholder="Scan your card" autocomplete="off" />
-            <button class="scan-button" type="button" title="Scan with camera" onclick="openBarcodeScanner('borrow-child')">📷</button>
-          </div>
+          <label>Tap your library card</label>
+          <input id="kid-child-select" type="hidden" />
+          <div id="kid-reader-pickers" class="reader-pickers compact-reader-strip"></div>
+          <div id="selected-reader-pill" class="selected-reader-pill" hidden></div>
+
+          <details class="scan-card-details">
+            <summary>Scan a library card instead</summary>
+            <div class="scan-input-row">
+              <input id="borrow-child" class="kid-input kid-card-scan" placeholder="Scan your card" autocomplete="off" />
+              <button class="scan-button" type="button" title="Scan with camera" onclick="openBarcodeScanner('borrow-child')">📷</button>
+            </div>
+          </details>
+
           <label>Book barcode</label>
           <div class="scan-input-row">
             <input id="borrow-book" class="kid-input" placeholder="Scan a book" autocomplete="off" />

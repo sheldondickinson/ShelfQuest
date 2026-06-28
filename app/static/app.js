@@ -220,12 +220,44 @@ function selectedChildBarcode() {
   return scanned || selected;
 }
 
+function selectedChild() {
+  const barcode = selectedChildBarcode();
+  return childrenCache.find(c => c.barcode === barcode) || null;
+}
+
+function renderSelectedReader() {
+  const selected = document.getElementById('kid-child-select')?.value?.trim() || '';
+  const pill = document.getElementById('selected-reader-pill');
+  const child = childrenCache.find(c => c.barcode === selected);
+
+  document.querySelectorAll('.reader-picker').forEach(btn => {
+    btn.classList.toggle('selected', btn.dataset.barcode === selected);
+  });
+
+  if (!pill) return;
+  if (!child) {
+    pill.hidden = true;
+    pill.innerHTML = '';
+    return;
+  }
+
+  pill.hidden = false;
+  pill.innerHTML = `✅ <strong>${escapeHtml(child.name)}</strong> is ready. Now scan a book.`;
+}
+
 function selectKidReader(barcode) {
   const select = document.getElementById('kid-child-select');
   const scan = document.getElementById('borrow-child');
   if (select) select.value = barcode;
   if (scan) scan.value = '';
+  renderSelectedReader();
   document.getElementById('borrow-book')?.focus();
+}
+
+function clearSelectedKidReader() {
+  const select = document.getElementById('kid-child-select');
+  if (select) select.value = '';
+  renderSelectedReader();
 }
 
 async function checkout() {
@@ -271,20 +303,21 @@ async function refreshChildren() {
   const select = document.getElementById('kid-child-select');
   if (select) {
     const current = select.value;
-    select.innerHTML = '<option value="">Choose your card</option>' + rows.map(r => `<option value="${escapeHtml(r.barcode)}">${escapeHtml(r.name)} (${r.active_loans}/${r.borrow_limit})</option>`).join('');
     if (rows.some(r => r.barcode === current)) select.value = current;
+    else select.value = '';
   }
 
   const pickers = document.getElementById('kid-reader-pickers');
   if (pickers) {
     pickers.innerHTML = rows.map(r => `
-      <button class="reader-picker" type="button" onclick="selectKidReader('${escapeHtml(r.barcode)}')">
+      <button class="reader-picker" data-barcode="${escapeHtml(r.barcode)}" type="button" onclick="selectKidReader('${escapeHtml(r.barcode)}')" aria-label="Choose ${escapeHtml(r.name)}">
         ${childPhoto(r, 'reader-photo')}
         <span>${escapeHtml(r.name)}</span>
         <small>${r.active_loans}/${r.borrow_limit}</small>
       </button>
     `).join('');
   }
+  renderSelectedReader();
 }
 
 function editChild(childId) {
@@ -891,11 +924,12 @@ window.addEventListener('load', () => {
   showKidView(currentKidView);
   refreshAll();
 
-  ['borrow-book', 'return-book', 'isbn', 'kid-search', 'admin-password', 'bulk-return-book'].forEach(id => {
+  ['borrow-child', 'borrow-book', 'return-book', 'isbn', 'kid-search', 'admin-password', 'bulk-return-book'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('keydown', e => {
       if (e.key !== 'Enter') return;
+      if (id === 'borrow-child') document.getElementById('borrow-book')?.focus();
       if (id === 'borrow-book') checkout();
       if (id === 'return-book') returnBook();
       if (id === 'isbn') lookupBook();
@@ -905,20 +939,10 @@ window.addEventListener('load', () => {
     });
   });
 
-  const childSelect = document.getElementById('kid-child-select');
-  if (childSelect) {
-    childSelect.addEventListener('change', () => {
-      const scan = document.getElementById('borrow-child');
-      if (scan) scan.value = '';
-      document.getElementById('borrow-book')?.focus();
-    });
-  }
-
   const scanCard = document.getElementById('borrow-child');
   if (scanCard) {
     scanCard.addEventListener('input', () => {
-      const select = document.getElementById('kid-child-select');
-      if (select && scanCard.value.trim()) select.value = '';
+      if (scanCard.value.trim()) clearSelectedKidReader();
     });
   }
 
