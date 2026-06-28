@@ -7,9 +7,12 @@
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-  <header>
-    <h1>ShelfQuest</h1>
-    <p>Home library borrowing for small humans and tired adults.</p>
+  <header class="topbar">
+    <div>
+      <h1>📚 ShelfQuest</h1>
+      <p>Home library borrowing for small humans and tired adults.</p>
+    </div>
+    <div class="version">v0.1.5</div>
   </header>
 
   <nav>
@@ -19,30 +22,49 @@
   </nav>
 
   <main>
-    <section id="kiosk" class="tab active">
-      <h2>Kid Kiosk</h2>
-      <div class="grid two">
-        <div class="card">
-          <h3>Borrow</h3>
-          <label>Child card barcode</label>
-          <input id="borrow-child" placeholder="Scan child card, e.g. KID-PASCAL" autocomplete="off" />
-          <label>Book ISBN or barcode</label>
-          <input id="borrow-book" placeholder="Scan book ISBN or ShelfQuest barcode" autocomplete="off" />
-          <button onclick="checkout()">Borrow Book</button>
-          <p id="borrow-result" class="result"></p>
+    <section id="kiosk" class="tab active kid-world">
+      <div class="kid-hero">
+        <div>
+          <h2>Story Scanner</h2>
+          <p>Scan your card, choose your books, and start your reading quest.</p>
+        </div>
+        <div class="kid-emoji">🦄 🚀 🐉</div>
+      </div>
+
+      <div class="grid two kid-grid">
+        <div class="card kid-card borrow-card">
+          <div class="kid-card-title">
+            <span class="big-emoji">✨</span>
+            <div>
+              <h3>Borrow an Adventure</h3>
+              <p>Scan your library card, then scan a book.</p>
+            </div>
+          </div>
+          <label>My library card</label>
+          <input id="borrow-child" class="kid-input" placeholder="Scan your card" autocomplete="off" />
+          <label>Book barcode</label>
+          <input id="borrow-book" class="kid-input" placeholder="Scan a book" autocomplete="off" />
+          <button class="kid-button" onclick="checkout()">Borrow Book</button>
+          <p id="borrow-result" class="result kid-result"></p>
         </div>
 
-        <div class="card">
-          <h3>Return</h3>
-          <label>Book ISBN or barcode</label>
-          <input id="return-book" placeholder="Scan book ISBN or ShelfQuest barcode" autocomplete="off" />
-          <button onclick="returnBook()">Return Book</button>
-          <p id="return-result" class="result"></p>
+        <div class="card kid-card return-card">
+          <div class="kid-card-title">
+            <span class="big-emoji">📦</span>
+            <div>
+              <h3>Magic Returns Box</h3>
+              <p>Scan books when they come back home.</p>
+            </div>
+          </div>
+          <label>Book barcode</label>
+          <input id="return-book" class="kid-input" placeholder="Scan a book to return" autocomplete="off" />
+          <button class="kid-button return-button" onclick="returnBook()">Return Book</button>
+          <p id="return-result" class="result kid-result"></p>
         </div>
       </div>
 
-      <div class="card">
-        <h3>Currently Borrowed</h3>
+      <div class="card kid-card">
+        <h3>Current Reading Quests</h3>
         <table id="loans-table"></table>
       </div>
     </section>
@@ -88,14 +110,67 @@
         </div>
       </div>
 
+      <div class="card" id="edit-card" hidden>
+        <div class="card-heading">
+          <h3>Edit Book</h3>
+          <button class="secondary" onclick="cancelEdit()">Cancel</button>
+        </div>
+        <input id="edit-book-id" type="hidden" />
+        <input id="edit-copy-id" type="hidden" />
+        <div class="grid two">
+          <div>
+            <label>Title</label>
+            <input id="edit-title" />
+            <label>Author</label>
+            <input id="edit-author" />
+            <label>Illustrator</label>
+            <input id="edit-illustrator" />
+            <label>Synopsis</label>
+            <textarea id="edit-synopsis" rows="5"></textarea>
+            <label>Category</label>
+            <input id="edit-category" />
+          </div>
+          <div>
+            <label>ISBN</label>
+            <input id="edit-isbn" />
+            <label>Barcode</label>
+            <input id="edit-barcode" />
+            <label>Quantity owned</label>
+            <input id="edit-qty" type="number" min="1" />
+            <label>Cover URL</label>
+            <input id="edit-cover" />
+            <label>Shelf location</label>
+            <input id="edit-shelf" placeholder="e.g. Picture Books / Bin 2" />
+            <label>Condition</label>
+            <select id="edit-condition">
+              <option value="good">Good</option>
+              <option value="damaged_needs_repair">Damaged, needs repair</option>
+            </select>
+            <label>Condition note</label>
+            <input id="edit-condition-note" placeholder="e.g. torn page, needs tape" />
+          </div>
+        </div>
+        <button onclick="saveEdit()">Save Changes</button>
+        <p id="edit-result" class="result"></p>
+      </div>
+
       <div class="card">
         <h3>Children</h3>
         <table id="children-table"></table>
       </div>
 
       <div class="card">
-        <h3>Books</h3>
-        <table id="books-table"></table>
+        <div class="card-heading wrap">
+          <h3>Books</h3>
+          <div class="search-row">
+            <input id="book-search" placeholder="Search title, author, illustrator, ISBN, barcode, category, synopsis, condition..." autocomplete="off" />
+            <button onclick="refreshBooks()">Search</button>
+            <button class="secondary" onclick="clearBookSearch()">Clear</button>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table id="books-table"></table>
+        </div>
       </div>
     </section>
   </main>
