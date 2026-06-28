@@ -1,4 +1,4 @@
-# ShelfQuest v0.1.5
+# ShelfQuest v0.1.6
 
 Adds the first real admin maintenance features:
 
@@ -38,3 +38,12 @@ The v0.1.4 importer is included. It supports:
 `ISBN,Barcode,Qty,Title,Author,Illustrator,Synopsis,Category,CoverURL`
 
 Duplicate ISBN rows with blank `Barcode` are counted into `Qty` rather than creating ambiguous duplicate scan codes.
+
+
+## v0.1.6 additions
+
+- Kid Kiosk title changed to ShelfQuest.
+- Kids can choose their library card from a dropdown or scan their card.
+- Admin edit screen can upload a local cover image. Images are stored in `/data/covers` and served from `/covers/...`.
+- Admin can copy/cache remote `CoverURL` images into the NAS-hosted covers folder.
+- Kid Kiosk now has a book search with clickable result cards and a detail lightbox.

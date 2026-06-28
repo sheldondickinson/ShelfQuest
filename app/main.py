@@ -3,6 +3,10 @@ import sqlite3
 import urllib.parse
 import urllib.request
 import json
+import base64
+import binascii
+import mimetypes
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -16,8 +20,11 @@ from pydantic import BaseModel, Field
 DB_PATH = os.getenv("LIBRARY_DB", "/data/library.db")
 DEFAULT_LOAN_DAYS = int(os.getenv("DEFAULT_LOAN_DAYS", "7"))
 APP_DIR = Path(__file__).resolve().parent
+APP_VERSION = "0.1.6"
+COVERS_DIR = Path(os.getenv("COVERS_DIR", "/data/covers"))
+COVERS_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="ShelfQuest", version="0.1.5")
+app = FastAPI(title="ShelfQuest", version=APP_VERSION)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,6 +33,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
+app.mount("/covers", StaticFiles(directory=str(COVERS_DIR)), name="covers")
 
 
 COPY_STATUSES = {"available", "borrowed", "deleted"}
@@ -179,6 +187,12 @@ class ConditionUpdateIn(BaseModel):
     condition_note: Optional[str] = None
 
 
+class CoverUploadIn(BaseModel):
+    filename: str = Field(min_length=1)
+    content_type: Optional[str] = None
+    data_base64: str = Field(min_length=1)
+
+
 class CheckoutIn(BaseModel):
     child_barcode: str
     book_code: str
@@ -206,9 +220,44 @@ def validate_condition_status(value: str) -> str:
     return value
 
 
+def cover_extension(filename: str, content_type: Optional[str] = None) -> str:
+    name = (filename or "cover").lower().strip()
+    ext = Path(name).suffix.lower()
+    allowed = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+    if ext in allowed:
+        return ".jpg" if ext == ".jpeg" else ext
+    guessed = mimetypes.guess_extension((content_type or "").split(";")[0].strip())
+    if guessed in allowed:
+        return ".jpg" if guessed == ".jpeg" else guessed
+    return ".jpg"
+
+
+def save_cover_bytes(book_id: int, raw: bytes, filename: str, content_type: Optional[str] = None) -> str:
+    if not raw:
+        raise HTTPException(status_code=400, detail="Cover file is empty")
+    if len(raw) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Cover file is too large. Keep it under 8 MB.")
+    ext = cover_extension(filename, content_type)
+    out_name = f"book-{book_id}-{uuid.uuid4().hex[:12]}{ext}"
+    out_path = COVERS_DIR / out_name
+    out_path.write_bytes(raw)
+    return f"/covers/{out_name}"
+
+
+def download_cover(url: str, book_id: int) -> Optional[str]:
+    parsed = urllib.parse.urlparse(url or "")
+    if parsed.scheme not in {"http", "https"}:
+        return None
+    req = urllib.request.Request(url, headers={"User-Agent": "ShelfQuest/0.1.6"})
+    with urllib.request.urlopen(req, timeout=12) as resp:
+        content_type = resp.headers.get("content-type")
+        raw = resp.read(8 * 1024 * 1024 + 1)
+    return save_cover_bytes(book_id, raw, Path(parsed.path).name or f"book-{book_id}", content_type)
+
+
 @app.get("/api/health")
 def health():
-    return {"ok": True, "db": DB_PATH, "version": "0.1.5"}
+    return {"ok": True, "db": DB_PATH, "version": APP_VERSION}
 
 
 @app.post("/api/children")
@@ -581,6 +630,64 @@ def delete_book(book_id: int):
             ("book_deleted", book["title"], now_iso()),
         )
     return {"ok": True, "book_id": book_id, "title": book["title"]}
+
+
+@app.post("/api/books/{book_id}/cover")
+def upload_book_cover(book_id: int, payload: CoverUploadIn):
+    try:
+        raw = base64.b64decode(payload.data_base64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid base64 cover data")
+
+    with db() as conn:
+        book = conn.execute("SELECT id, title FROM books WHERE id = ? AND deleted_at IS NULL", (book_id,)).fetchone()
+        if not book:
+            raise HTTPException(status_code=404, detail="Book not found")
+        cover_url = save_cover_bytes(book_id, raw, payload.filename, payload.content_type)
+        conn.execute("UPDATE books SET cover_url = ?, updated_at = ? WHERE id = ?", (cover_url, now_iso(), book_id))
+        conn.execute(
+            "INSERT INTO events(event_type, notes, created_at) VALUES (?, ?, ?)",
+            ("cover_uploaded", f"{book['title']}: {cover_url}", now_iso()),
+        )
+    return {"ok": True, "book_id": book_id, "cover_url": cover_url}
+
+
+@app.post("/api/covers/cache")
+def cache_remote_covers():
+    cached = 0
+    skipped = 0
+    failed = []
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, title, cover_url
+            FROM books
+            WHERE deleted_at IS NULL
+              AND cover_url IS NOT NULL
+              AND trim(cover_url) != ''
+              AND lower(cover_url) NOT LIKE '/covers/%'
+            ORDER BY title COLLATE NOCASE
+            """
+        ).fetchall()
+        for row in rows:
+            url = (row["cover_url"] or "").strip()
+            if not url.lower().startswith(("http://", "https://")):
+                skipped += 1
+                continue
+            try:
+                local_url = download_cover(url, row["id"])
+                if not local_url:
+                    skipped += 1
+                    continue
+                conn.execute("UPDATE books SET cover_url = ?, updated_at = ? WHERE id = ?", (local_url, now_iso(), row["id"]))
+                cached += 1
+            except Exception as exc:
+                failed.append({"book_id": row["id"], "title": row["title"], "error": str(exc)[:180]})
+        conn.execute(
+            "INSERT INTO events(event_type, notes, created_at) VALUES (?, ?, ?)",
+            ("covers_cached", f"cached={cached}, skipped={skipped}, failed={len(failed)}", now_iso()),
+        )
+    return {"ok": True, "cached": cached, "skipped": skipped, "failed": failed[:20], "failed_count": len(failed)}
 
 
 def resolve_book_copy(conn: sqlite3.Connection, code: str):

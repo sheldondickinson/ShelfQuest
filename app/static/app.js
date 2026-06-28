@@ -1,4 +1,6 @@
 let booksCache = [];
+let childrenCache = [];
+let kidSearchCache = [];
 
 function showTab(id) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -39,6 +41,16 @@ function statusBadge(r) {
   else bits.push(`<span class="badge available">Available</span>`);
   if (condition === 'damaged_needs_repair') bits.push(`<span class="badge damaged">Damaged, needs repair</span>`);
   return bits.join(' ');
+}
+
+function kidStatusText(r) {
+  if ((r.condition_status || 'good') === 'damaged_needs_repair') return 'Needs repair';
+  if ((r.status || 'available') === 'borrowed') return r.borrowed_by ? `Borrowed by ${r.borrowed_by}` : 'Borrowed';
+  return 'Ready to borrow';
+}
+
+function coverImg(r, className = 'cover-thumb') {
+  return r.cover_url ? `<img class="${className}" src="${escapeHtml(r.cover_url)}" alt="Cover for ${escapeHtml(r.title)}" loading="lazy" />` : `<div class="${className} cover-placeholder">📘</div>`;
 }
 
 async function addChild() {
@@ -90,10 +102,16 @@ async function addBook() {
   } catch (e) { setResult('book-result', e.message, false); }
 }
 
+function selectedChildBarcode() {
+  const scanned = document.getElementById('borrow-child')?.value?.trim() || '';
+  const selected = document.getElementById('kid-child-select')?.value?.trim() || '';
+  return scanned || selected;
+}
+
 async function checkout() {
   try {
     const payload = {
-      child_barcode: document.getElementById('borrow-child').value,
+      child_barcode: selectedChildBarcode(),
       book_code: document.getElementById('borrow-book').value
     };
     const r = await api('/api/checkout', { method: 'POST', body: JSON.stringify(payload) });
@@ -117,9 +135,17 @@ async function returnBook() {
 
 async function refreshChildren() {
   const rows = await api('/api/children');
+  childrenCache = rows;
   const html = ['<tr><th>Name</th><th>Card</th><th>Limit</th><th>Borrowed</th></tr>']
     .concat(rows.map(r => `<tr><td>${escapeHtml(r.name)}</td><td>${escapeHtml(r.barcode)}</td><td>${r.borrow_limit}</td><td>${r.active_loans}</td></tr>`));
   document.getElementById('children-table').innerHTML = html.join('');
+
+  const select = document.getElementById('kid-child-select');
+  if (select) {
+    const current = select.value;
+    select.innerHTML = '<option value="">Choose your card</option>' + rows.map(r => `<option value="${escapeHtml(r.barcode)}">${escapeHtml(r.name)} (${r.active_loans}/${r.borrow_limit})</option>`).join('');
+    if (rows.some(r => r.barcode === current)) select.value = current;
+  }
 }
 
 function clearBookSearch() {
@@ -133,7 +159,7 @@ async function refreshBooks() {
   booksCache = rows;
   const html = ['<tr><th>Cover</th><th>Title</th><th>Author / Illustrator</th><th>Category</th><th>ISBN</th><th>Qty</th><th>Barcode</th><th>Status</th><th>Actions</th></tr>']
     .concat(rows.map(r => `<tr>
-      <td>${r.cover_url ? `<img class="cover-thumb" src="${escapeHtml(r.cover_url)}" alt="Cover" />` : ''}</td>
+      <td>${coverImg(r, 'cover-thumb')}</td>
       <td><strong>${escapeHtml(r.title)}</strong>${r.synopsis ? `<div class="synopsis">${escapeHtml(r.synopsis)}</div>` : ''}${r.condition_note ? `<div class="condition-note">Note: ${escapeHtml(r.condition_note)}</div>` : ''}</td>
       <td>${escapeHtml(r.author)}${r.illustrator ? '<br><small>Illus. ' + escapeHtml(r.illustrator) + '</small>' : ''}</td>
       <td>${escapeHtml(r.category)}</td>
@@ -176,8 +202,10 @@ function editBook(bookId, copyId) {
   document.getElementById('edit-shelf').value = r.shelf_location || '';
   document.getElementById('edit-condition').value = r.condition_status || 'good';
   document.getElementById('edit-condition-note').value = r.condition_note || '';
+  document.getElementById('edit-cover-file').value = '';
   document.getElementById('edit-card').hidden = false;
   document.getElementById('edit-result').textContent = '';
+  document.getElementById('cover-result').textContent = '';
   document.getElementById('edit-card').scrollIntoView({ behaviour: 'smooth', block: 'start' });
 }
 
@@ -209,6 +237,47 @@ async function saveEdit() {
   } catch (e) { setResult('edit-result', e.message, false); }
 }
 
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = String(reader.result || '');
+      resolve(value.includes(',') ? value.split(',')[1] : value);
+    };
+    reader.onerror = () => reject(reader.error || new Error('Could not read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadEditCover() {
+  const bookId = Number(document.getElementById('edit-book-id').value);
+  const file = document.getElementById('edit-cover-file').files[0];
+  if (!bookId) return setResult('cover-result', 'Open a book for editing first.', false);
+  if (!file) return setResult('cover-result', 'Choose an image file first.', false);
+  try {
+    setResult('cover-result', 'Uploading cover...');
+    const data = await fileToBase64(file);
+    const r = await api('/api/books/' + bookId + '/cover', {
+      method: 'POST',
+      body: JSON.stringify({ filename: file.name, content_type: file.type, data_base64: data })
+    });
+    document.getElementById('edit-cover').value = r.cover_url;
+    setResult('cover-result', 'Cover uploaded to the NAS. Save other changes if needed.');
+    await refreshBooks();
+  } catch (e) { setResult('cover-result', e.message, false); }
+}
+
+async function cacheRemoteCovers() {
+  if (!confirm('Copy all remote CoverURL images into the QNAP /data/covers folder? This may take a minute.')) return;
+  try {
+    setResult('cover-result', 'Copying cover images to NAS...');
+    const r = await api('/api/covers/cache', { method: 'POST', body: JSON.stringify({}) });
+    const failed = r.failed_count ? ` ${r.failed_count} failed.` : '';
+    setResult('cover-result', `Copied ${r.cached} covers. Skipped ${r.skipped}.${failed}`);
+    await refreshBooks();
+  } catch (e) { setResult('cover-result', e.message, false); }
+}
+
 async function markCondition(copyId, conditionStatus) {
   const note = conditionStatus === 'damaged_needs_repair'
     ? prompt('Damage/repair note?', 'Needs repair')
@@ -234,6 +303,60 @@ async function deleteBook(bookId) {
   } catch (e) { alert(e.message); }
 }
 
+async function kidSearchBooks() {
+  const q = document.getElementById('kid-search').value.trim();
+  const target = document.getElementById('kid-search-results');
+  if (!q) {
+    target.innerHTML = '<p class="kid-hint">Type something to find a book.</p>';
+    return;
+  }
+  try {
+    const rows = await api('/api/books?q=' + encodeURIComponent(q));
+    kidSearchCache = rows.slice(0, 24);
+    if (!kidSearchCache.length) {
+      target.innerHTML = '<p class="kid-hint">No books found. Try another word.</p>';
+      return;
+    }
+    target.innerHTML = kidSearchCache.map((r, idx) => `
+      <button class="kid-book-result" onclick="showBookModal(${idx})">
+        ${coverImg(r, 'kid-result-cover')}
+        <span class="kid-result-title">${escapeHtml(r.title)}</span>
+        <span class="kid-result-meta">${escapeHtml(r.author || r.category || '')}</span>
+        <span class="kid-result-status">${escapeHtml(kidStatusText(r))}</span>
+      </button>
+    `).join('');
+  } catch (e) {
+    target.innerHTML = `<p class="kid-hint error">${escapeHtml(e.message)}</p>`;
+  }
+}
+
+function showBookModal(index) {
+  const r = kidSearchCache[index];
+  if (!r) return;
+  const status = kidStatusText(r);
+  const canBorrow = status === 'Ready to borrow';
+  document.getElementById('book-modal-content').innerHTML = `
+    <div class="modal-book">
+      <div>${coverImg(r, 'modal-cover')}</div>
+      <div>
+        <h2 id="modal-title">${escapeHtml(r.title)}</h2>
+        ${r.author ? `<p><strong>Author:</strong> ${escapeHtml(r.author)}</p>` : ''}
+        ${r.illustrator ? `<p><strong>Illustrator:</strong> ${escapeHtml(r.illustrator)}</p>` : ''}
+        ${r.category ? `<p><strong>Shelf:</strong> ${escapeHtml(r.category)}</p>` : ''}
+        ${r.shelf_location ? `<p><strong>Location:</strong> ${escapeHtml(r.shelf_location)}</p>` : ''}
+        <p><strong>Status:</strong> ${escapeHtml(status)}</p>
+        ${r.synopsis ? `<p class="modal-synopsis">${escapeHtml(r.synopsis)}</p>` : '<p class="modal-synopsis">No story blurb yet.</p>'}
+        <div class="modal-action-note">${canBorrow ? 'Found it? Scan the book barcode to borrow it.' : 'Ask a grown-up about this one.'}</div>
+      </div>
+    </div>
+  `;
+  document.getElementById('book-modal').hidden = false;
+}
+
+function closeBookModal() {
+  document.getElementById('book-modal').hidden = true;
+}
+
 async function refreshAll() {
   await Promise.all([refreshChildren(), refreshBooks(), refreshLoans()]);
 }
@@ -241,7 +364,7 @@ async function refreshAll() {
 window.addEventListener('load', refreshAll);
 
 window.addEventListener('load', () => {
-  ['borrow-book', 'return-book', 'isbn'].forEach(id => {
+  ['borrow-book', 'return-book', 'isbn', 'kid-search'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('keydown', e => {
@@ -249,8 +372,26 @@ window.addEventListener('load', () => {
       if (id === 'borrow-book') checkout();
       if (id === 'return-book') returnBook();
       if (id === 'isbn') lookupBook();
+      if (id === 'kid-search') kidSearchBooks();
     });
   });
+
+  const childSelect = document.getElementById('kid-child-select');
+  if (childSelect) {
+    childSelect.addEventListener('change', () => {
+      const scan = document.getElementById('borrow-child');
+      if (scan) scan.value = '';
+      document.getElementById('borrow-book')?.focus();
+    });
+  }
+
+  const scanCard = document.getElementById('borrow-child');
+  if (scanCard) {
+    scanCard.addEventListener('input', () => {
+      const select = document.getElementById('kid-child-select');
+      if (select && scanCard.value.trim()) select.value = '';
+    });
+  }
 
   const search = document.getElementById('book-search');
   if (search) {
