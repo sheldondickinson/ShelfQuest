@@ -8,5 +8,6 @@ services:
     environment:
       - LIBRARY_DB=/data/library.db
       - DEFAULT_LOAN_DAYS=7
+      - ADMIN_PASSWORD=Letmein!2
     volumes:
       - ./data:/data

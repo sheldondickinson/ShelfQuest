@@ -7,11 +7,12 @@ import base64
 import binascii
 import mimetypes
 import uuid
+import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,9 +21,13 @@ from pydantic import BaseModel, Field
 DB_PATH = os.getenv("LIBRARY_DB", "/data/library.db")
 DEFAULT_LOAN_DAYS = int(os.getenv("DEFAULT_LOAN_DAYS", "7"))
 APP_DIR = Path(__file__).resolve().parent
-APP_VERSION = "0.1.6"
+APP_VERSION = "0.1.7"
 COVERS_DIR = Path(os.getenv("COVERS_DIR", "/data/covers"))
+CHILDREN_DIR = Path(os.getenv("CHILDREN_DIR", "/data/children"))
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "Letmein!2")
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN") or secrets.token_urlsafe(32)
 COVERS_DIR.mkdir(parents=True, exist_ok=True)
+CHILDREN_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="ShelfQuest", version=APP_VERSION)
 app.add_middleware(
@@ -34,6 +39,7 @@ app.add_middleware(
 )
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
 app.mount("/covers", StaticFiles(directory=str(COVERS_DIR)), name="covers")
+app.mount("/children", StaticFiles(directory=str(CHILDREN_DIR)), name="children")
 
 
 COPY_STATUSES = {"available", "borrowed", "deleted"}
@@ -67,8 +73,10 @@ def init_db():
                 name TEXT NOT NULL,
                 barcode TEXT NOT NULL UNIQUE,
                 borrow_limit INTEGER NOT NULL DEFAULT 5,
+                photo_url TEXT,
                 active INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                updated_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS books (
@@ -134,6 +142,8 @@ def init_db():
         add_column_if_missing(conn, "books", "updated_at", "ALTER TABLE books ADD COLUMN updated_at TEXT")
         add_column_if_missing(conn, "book_copies", "condition_status", "ALTER TABLE book_copies ADD COLUMN condition_status TEXT NOT NULL DEFAULT 'good'")
         add_column_if_missing(conn, "book_copies", "updated_at", "ALTER TABLE book_copies ADD COLUMN updated_at TEXT")
+        add_column_if_missing(conn, "children", "photo_url", "ALTER TABLE children ADD COLUMN photo_url TEXT")
+        add_column_if_missing(conn, "children", "updated_at", "ALTER TABLE children ADD COLUMN updated_at TEXT")
 
 
 @app.on_event("startup")
@@ -146,10 +156,21 @@ def root():
     return FileResponse(str(APP_DIR / "static" / "index.html"))
 
 
+class AdminLoginIn(BaseModel):
+    password: str = Field(min_length=1)
+
+
 class ChildIn(BaseModel):
     name: str = Field(min_length=1)
     barcode: str = Field(min_length=1)
     borrow_limit: int = Field(default=5, ge=1, le=50)
+
+
+class ChildUpdateIn(BaseModel):
+    name: str = Field(min_length=1)
+    barcode: str = Field(min_length=1)
+    borrow_limit: int = Field(default=5, ge=1, le=50)
+    active: int = Field(default=1, ge=0, le=1)
 
 
 class BookIn(BaseModel):
@@ -244,15 +265,40 @@ def save_cover_bytes(book_id: int, raw: bytes, filename: str, content_type: Opti
     return f"/covers/{out_name}"
 
 
+def save_child_photo_bytes(child_id: int, raw: bytes, filename: str, content_type: Optional[str] = None) -> str:
+    if not raw:
+        raise HTTPException(status_code=400, detail="Photo file is empty")
+    if len(raw) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Photo file is too large. Keep it under 8 MB.")
+    ext = cover_extension(filename, content_type)
+    out_name = f"child-{child_id}-{uuid.uuid4().hex[:12]}{ext}"
+    out_path = CHILDREN_DIR / out_name
+    out_path.write_bytes(raw)
+    return f"/children/{out_name}"
+
+
 def download_cover(url: str, book_id: int) -> Optional[str]:
     parsed = urllib.parse.urlparse(url or "")
     if parsed.scheme not in {"http", "https"}:
         return None
-    req = urllib.request.Request(url, headers={"User-Agent": "ShelfQuest/0.1.6"})
+    req = urllib.request.Request(url, headers={"User-Agent": "ShelfQuest/0.1.7"})
     with urllib.request.urlopen(req, timeout=12) as resp:
         content_type = resp.headers.get("content-type")
         raw = resp.read(8 * 1024 * 1024 + 1)
     return save_cover_bytes(book_id, raw, Path(parsed.path).name or f"book-{book_id}", content_type)
+
+
+def require_admin(x_admin_token: Optional[str] = Header(default=None, alias="X-Admin-Token")):
+    if not x_admin_token or x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Admin password required")
+    return True
+
+
+@app.post("/api/admin/login")
+def admin_login(payload: AdminLoginIn):
+    if not secrets.compare_digest(payload.password, ADMIN_PASSWORD):
+        raise HTTPException(status_code=401, detail="Incorrect admin password")
+    return {"ok": True, "token": ADMIN_TOKEN}
 
 
 @app.get("/api/health")
@@ -261,7 +307,7 @@ def health():
 
 
 @app.post("/api/children")
-def add_child(child: ChildIn):
+def add_child(child: ChildIn, _admin: bool = Depends(require_admin)):
     try:
         with db() as conn:
             cur = conn.execute(
@@ -301,6 +347,49 @@ def child_by_barcode(barcode: str):
     if not row:
         raise HTTPException(status_code=404, detail="Child card not found")
     return dict(row)
+
+
+@app.put("/api/children/{child_id}")
+def update_child(child_id: int, payload: ChildUpdateIn, _admin: bool = Depends(require_admin)):
+    try:
+        with db() as conn:
+            child = conn.execute("SELECT * FROM children WHERE id = ?", (child_id,)).fetchone()
+            if not child:
+                raise HTTPException(status_code=404, detail="Child not found")
+            conflict = conn.execute("SELECT id FROM children WHERE barcode = ? AND id != ?", (payload.barcode.strip(), child_id)).fetchone()
+            if conflict:
+                raise HTTPException(status_code=409, detail="Another child already has that barcode")
+            conn.execute(
+                "UPDATE children SET name = ?, barcode = ?, borrow_limit = ?, active = ?, updated_at = ? WHERE id = ?",
+                (payload.name.strip(), payload.barcode.strip(), payload.borrow_limit, payload.active, now_iso(), child_id),
+            )
+            conn.execute(
+                "INSERT INTO events(event_type, child_id, notes, created_at) VALUES (?, ?, ?, ?)",
+                ("child_updated", child_id, payload.name.strip(), now_iso()),
+            )
+        return {"ok": True, "child_id": child_id}
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="Child barcode already exists")
+
+
+@app.post("/api/children/{child_id}/photo")
+def upload_child_photo(child_id: int, payload: CoverUploadIn, _admin: bool = Depends(require_admin)):
+    try:
+        raw = base64.b64decode(payload.data_base64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid base64 photo data")
+
+    with db() as conn:
+        child = conn.execute("SELECT id, name FROM children WHERE id = ?", (child_id,)).fetchone()
+        if not child:
+            raise HTTPException(status_code=404, detail="Child not found")
+        photo_url = save_child_photo_bytes(child_id, raw, payload.filename, payload.content_type)
+        conn.execute("UPDATE children SET photo_url = ?, updated_at = ? WHERE id = ?", (photo_url, now_iso(), child_id))
+        conn.execute(
+            "INSERT INTO events(event_type, child_id, notes, created_at) VALUES (?, ?, ?, ?)",
+            ("child_photo_uploaded", child_id, photo_url, now_iso()),
+        )
+    return {"ok": True, "child_id": child_id, "photo_url": photo_url}
 
 
 @app.get("/api/lookup/{isbn}")
@@ -440,7 +529,7 @@ def create_or_update_book_and_copy(conn: sqlite3.Connection, book: BookIn):
 
 
 @app.post("/api/books")
-def add_book(book: BookIn):
+def add_book(book: BookIn, _admin: bool = Depends(require_admin)):
     try:
         with db() as conn:
             book_id, copy_id, barcode = create_or_update_book_and_copy(conn, book)
@@ -498,7 +587,7 @@ def list_books(q: Optional[str] = Query(default=None)):
 
 
 @app.put("/api/books/{book_id}")
-def update_book(book_id: int, payload: BookUpdateIn):
+def update_book(book_id: int, payload: BookUpdateIn, _admin: bool = Depends(require_admin)):
     condition_status = validate_condition_status(payload.condition_status)
     isbn = clean_optional(payload.isbn)
     barcode = clean_optional(payload.barcode)
@@ -579,7 +668,7 @@ def update_book(book_id: int, payload: BookUpdateIn):
 
 
 @app.patch("/api/book-copies/{copy_id}/condition")
-def update_copy_condition(copy_id: int, payload: ConditionUpdateIn):
+def update_copy_condition(copy_id: int, payload: ConditionUpdateIn, _admin: bool = Depends(require_admin)):
     condition_status = validate_condition_status(payload.condition_status)
     with db() as conn:
         copy = conn.execute(
@@ -605,7 +694,7 @@ def update_copy_condition(copy_id: int, payload: ConditionUpdateIn):
 
 
 @app.delete("/api/books/{book_id}")
-def delete_book(book_id: int):
+def delete_book(book_id: int, _admin: bool = Depends(require_admin)):
     with db() as conn:
         book = conn.execute("SELECT * FROM books WHERE id = ? AND deleted_at IS NULL", (book_id,)).fetchone()
         if not book:
@@ -633,7 +722,7 @@ def delete_book(book_id: int):
 
 
 @app.post("/api/books/{book_id}/cover")
-def upload_book_cover(book_id: int, payload: CoverUploadIn):
+def upload_book_cover(book_id: int, payload: CoverUploadIn, _admin: bool = Depends(require_admin)):
     try:
         raw = base64.b64decode(payload.data_base64, validate=True)
     except (binascii.Error, ValueError):
@@ -653,7 +742,7 @@ def upload_book_cover(book_id: int, payload: CoverUploadIn):
 
 
 @app.post("/api/covers/cache")
-def cache_remote_covers():
+def cache_remote_covers(_admin: bool = Depends(require_admin)):
     cached = 0
     skipped = 0
     failed = []

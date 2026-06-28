@@ -1,49 +1,78 @@
-# ShelfQuest v0.1.6
+# ShelfQuest v0.1.7
 
-Adds the first real admin maintenance features:
+Home library app for kids and tired adults.
 
-- Edit book metadata from the Admin UI
-- Search across title, author, illustrator, synopsis, category, ISBN, barcode, status, condition notes and borrowed-by child
-- Mark a book copy as `Damaged, needs repair`
-- Mark a damaged book as repaired
-- Delete/hide a book from the catalogue without breaking historical loan records
-- More child-like Kid Kiosk UI
+## New in v0.1.7
 
-## Upgrade notes
+- Admin book list pagination.
+- More mobile-responsive admin and kid screens.
+- Camera scan buttons beside barcode/ISBN scan fields.
+- Child photos, including upload/edit through Admin.
+- Visual child picker cards in Kid Kiosk.
+- Admin password gate.
 
-1. Back up `/share/Container/shelfquest/data/library.db` first.
-2. Copy these files over the existing `/share/Container/shelfquest` folder.
-3. Do not delete the `data` folder.
-4. Rebuild and restart:
+## Admin password
+
+Default password is configured in `docker-compose.yml`:
+
+```yaml
+ADMIN_PASSWORD=Letmein!2
+```
+
+The browser stores a temporary admin token in local storage after login. If the container restarts, login again.
+
+## Camera scanning note
+
+The camera scan button uses the browser's built-in BarcodeDetector API where available. Many mobile browsers require HTTPS before allowing camera access on a LAN-hosted web app. USB barcode scanners and manual typing continue to work.
+
+## Upgrade
+
+1. Back up your database:
 
 ```bash
 cd /share/Container/shelfquest
+cp data/library.db data/library-before-v017-$(date +%Y%m%d-%H%M).db
+```
+
+2. Copy the contents of this folder over `/share/Container/shelfquest`.
+
+3. Do not delete the `data` folder.
+
+4. Rebuild:
+
+```bash
 docker compose down
 docker compose up -d --build
 ```
 
-The app performs lightweight SQLite migrations on startup. It adds:
+5. Hard refresh your browser:
 
-- `books.deleted_at`
-- `books.updated_at`
-- `book_copies.condition_status`
-- `book_copies.updated_at`
+```text
+Ctrl + F5
+```
 
-Deleted books are soft-deleted: they disappear from the catalogue, but historical loan/event records remain intact.
+## Data folders
 
-## Importer
+The app stores persistent data in `/data` inside the container, mounted from `./data` on the QNAP.
 
-The v0.1.4 importer is included. It supports:
+- SQLite database: `/data/library.db`
+- Book covers: `/data/covers`
+- Child photos: `/data/children`
 
-`ISBN,Barcode,Qty,Title,Author,Illustrator,Synopsis,Category,CoverURL`
+## API protection
 
-Duplicate ISBN rows with blank `Barcode` are counted into `Qty` rather than creating ambiguous duplicate scan codes.
+Kid functions remain open on the local LAN:
 
+- Child list
+- Book list/search
+- Checkout
+- Return
+- Active loans
 
-## v0.1.6 additions
+Admin changes require the admin token:
 
-- Kid Kiosk title changed to ShelfQuest.
-- Kids can choose their library card from a dropdown or scan their card.
-- Admin edit screen can upload a local cover image. Images are stored in `/data/covers` and served from `/covers/...`.
-- Admin can copy/cache remote `CoverURL` images into the NAS-hosted covers folder.
-- Kid Kiosk now has a book search with clickable result cards and a detail lightbox.
+- Add/edit child
+- Upload child photo
+- Add/edit/delete book
+- Upload/cache covers
+- Mark damaged/repaired
