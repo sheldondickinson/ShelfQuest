@@ -70,3 +70,7 @@ th { background: #f8fafc; }
   main { padding: 12px; }
   nav { padding: 8px 12px; }
 }
+
+.cover-thumb { max-width: 48px; max-height: 72px; border-radius: 4px; }
+.synopsis { margin-top: 0.35rem; font-size: 0.85rem; opacity: 0.75; max-width: 520px; }
+textarea { width: 100%; box-sizing: border-box; }

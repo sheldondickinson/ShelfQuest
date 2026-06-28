@@ -59,6 +59,9 @@ async function addBook() {
       isbn,
       title: document.getElementById('book-title').value,
       author: document.getElementById('book-author').value,
+      illustrator: document.getElementById('book-illustrator').value,
+      synopsis: document.getElementById('book-synopsis').value,
+      owned_qty: Number(document.getElementById('book-qty').value || 1),
       cover_url: document.getElementById('book-cover').value,
       category: document.getElementById('book-category').value,
       barcode: document.getElementById('book-barcode').value || isbn
@@ -103,8 +106,8 @@ async function refreshChildren() {
 
 async function refreshBooks() {
   const rows = await api('/api/books');
-  const html = ['<tr><th>Title</th><th>Author</th><th>ISBN</th><th>Barcode</th><th>Status</th></tr>']
-    .concat(rows.map(r => `<tr><td>${escapeHtml(r.title)}</td><td>${escapeHtml(r.author)}</td><td>${escapeHtml(r.isbn)}</td><td>${escapeHtml(r.barcode)}</td><td>${escapeHtml(r.status)}${r.borrowed_by ? ' by ' + escapeHtml(r.borrowed_by) : ''}</td></tr>`));
+  const html = ['<tr><th>Cover</th><th>Title</th><th>Author / Illustrator</th><th>Category</th><th>ISBN</th><th>Qty</th><th>Barcode</th><th>Status</th></tr>']
+    .concat(rows.map(r => `<tr><td>${r.cover_url ? `<img class="cover-thumb" src="${escapeHtml(r.cover_url)}" alt="Cover" />` : ''}</td><td><strong>${escapeHtml(r.title)}</strong>${r.synopsis ? `<div class="synopsis">${escapeHtml(r.synopsis)}</div>` : ''}</td><td>${escapeHtml(r.author)}${r.illustrator ? '<br><small>Illus. ' + escapeHtml(r.illustrator) + '</small>' : ''}</td><td>${escapeHtml(r.category)}</td><td>${escapeHtml(r.isbn)}</td><td>${escapeHtml(r.owned_qty || 1)}</td><td>${escapeHtml(r.barcode)}</td><td>${escapeHtml(r.status)}${r.borrowed_by ? ' by ' + escapeHtml(r.borrowed_by) : ''}</td></tr>`));
   document.getElementById('books-table').innerHTML = html.join('');
 }
 

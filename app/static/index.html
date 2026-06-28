@@ -27,7 +27,7 @@
           <label>Child card barcode</label>
           <input id="borrow-child" placeholder="Scan child card, e.g. KID-PASCAL" autocomplete="off" />
           <label>Book ISBN or barcode</label>
-          <input id="borrow-book" placeholder="Scan book ISBN" autocomplete="off" />
+          <input id="borrow-book" placeholder="Scan book ISBN or ShelfQuest barcode" autocomplete="off" />
           <button onclick="checkout()">Borrow Book</button>
           <p id="borrow-result" class="result"></p>
         </div>
@@ -35,7 +35,7 @@
         <div class="card">
           <h3>Return</h3>
           <label>Book ISBN or barcode</label>
-          <input id="return-book" placeholder="Scan book ISBN" autocomplete="off" />
+          <input id="return-book" placeholder="Scan book ISBN or ShelfQuest barcode" autocomplete="off" />
           <button onclick="returnBook()">Return Book</button>
           <p id="return-result" class="result"></p>
         </div>
@@ -71,12 +71,18 @@
           <input id="book-title" />
           <label>Author</label>
           <input id="book-author" />
+          <label>Illustrator</label>
+          <input id="book-illustrator" />
+          <label>Synopsis</label>
+          <textarea id="book-synopsis" rows="4"></textarea>
+          <label>Quantity owned</label>
+          <input id="book-qty" type="number" min="1" value="1" />
           <label>Cover URL</label>
           <input id="book-cover" />
           <label>Category</label>
           <input id="book-category" placeholder="Picture Books" />
-          <label>Temporary barcode</label>
-          <input id="book-barcode" placeholder="Defaults to ISBN" />
+          <label>Barcode / temporary scan code</label>
+          <input id="book-barcode" placeholder="Defaults to ISBN, or use BK000001 later" />
           <button onclick="addBook()">Add Book</button>
           <p id="book-result" class="result"></p>
         </div>

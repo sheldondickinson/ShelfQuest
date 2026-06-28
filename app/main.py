@@ -17,7 +17,7 @@ DB_PATH = os.getenv("LIBRARY_DB", "/data/library.db")
 DEFAULT_LOAN_DAYS = int(os.getenv("DEFAULT_LOAN_DAYS", "7"))
 APP_DIR = Path(__file__).resolve().parent
 
-app = FastAPI(title="ShelfQuest", version="0.1.0")
+app = FastAPI(title="ShelfQuest", version="0.1.3")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -58,9 +58,12 @@ def init_db():
                 isbn TEXT UNIQUE,
                 title TEXT NOT NULL,
                 author TEXT,
+                illustrator TEXT,
+                synopsis TEXT,
                 cover_url TEXT,
                 category TEXT,
                 reading_level TEXT,
+                owned_qty INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL
             );
 
@@ -101,6 +104,17 @@ def init_db():
             """
         )
 
+        # Lightweight migrations for databases created by earlier ShelfQuest versions.
+        existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(books)").fetchall()}
+        migrations = {
+            "illustrator": "ALTER TABLE books ADD COLUMN illustrator TEXT",
+            "synopsis": "ALTER TABLE books ADD COLUMN synopsis TEXT",
+            "owned_qty": "ALTER TABLE books ADD COLUMN owned_qty INTEGER NOT NULL DEFAULT 1",
+        }
+        for col, sql in migrations.items():
+            if col not in existing_cols:
+                conn.execute(sql)
+
 
 @app.on_event("startup")
 def startup():
@@ -122,9 +136,12 @@ class BookIn(BaseModel):
     isbn: Optional[str] = None
     title: str = Field(min_length=1)
     author: Optional[str] = None
+    illustrator: Optional[str] = None
+    synopsis: Optional[str] = None
     cover_url: Optional[str] = None
     category: Optional[str] = None
     reading_level: Optional[str] = None
+    owned_qty: int = Field(default=1, ge=1, le=500)
     barcode: Optional[str] = None
 
 
@@ -241,33 +258,88 @@ def add_book(book: BookIn):
             existing = conn.execute("SELECT id FROM books WHERE isbn = ?", (isbn,)).fetchone() if isbn else None
             if existing:
                 book_id = existing["id"]
+                conn.execute(
+                    """
+                    UPDATE books
+                    SET title = CASE WHEN title IS NULL OR title = '' OR title LIKE 'Unknown title (%' THEN ? ELSE title END,
+                        author = CASE WHEN (author IS NULL OR author = '') AND ? != '' THEN ? ELSE author END,
+                        illustrator = CASE WHEN (illustrator IS NULL OR illustrator = '') AND ? != '' THEN ? ELSE illustrator END,
+                        synopsis = CASE WHEN (synopsis IS NULL OR synopsis = '') AND ? != '' THEN ? ELSE synopsis END,
+                        cover_url = CASE WHEN (cover_url IS NULL OR cover_url = '') AND ? != '' THEN ? ELSE cover_url END,
+                        category = CASE WHEN (category IS NULL OR category = '') AND ? != '' THEN ? ELSE category END,
+                        owned_qty = CASE WHEN owned_qty < ? THEN ? ELSE owned_qty END
+                    WHERE id = ?
+                    """,
+                    (
+                        book.title.strip(),
+                        (book.author or '').strip(), (book.author or '').strip(),
+                        (book.illustrator or '').strip(), (book.illustrator or '').strip(),
+                        (book.synopsis or '').strip(), (book.synopsis or '').strip(),
+                        (book.cover_url or '').strip(), (book.cover_url or '').strip(),
+                        (book.category or '').strip(), (book.category or '').strip(),
+                        book.owned_qty, book.owned_qty,
+                        book_id,
+                    ),
+                )
             else:
                 cur = conn.execute(
                     """
-                    INSERT INTO books(isbn, title, author, cover_url, category, reading_level, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO books(isbn, title, author, illustrator, synopsis, cover_url, category, reading_level, owned_qty, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         isbn,
                         book.title.strip(),
                         (book.author or "").strip() or None,
+                        (book.illustrator or "").strip() or None,
+                        (book.synopsis or "").strip() or None,
                         book.cover_url,
                         book.category,
                         book.reading_level,
+                        book.owned_qty,
                         now_iso(),
                     ),
                 )
                 book_id = cur.lastrowid
 
-            cur2 = conn.execute(
-                "INSERT INTO book_copies(book_id, barcode, created_at) VALUES (?, ?, ?)",
-                (book_id, barcode, now_iso()),
-            )
-            conn.execute(
-                "INSERT INTO events(event_type, book_copy_id, notes, created_at) VALUES (?, ?, ?, ?)",
-                ("book_copy_created", cur2.lastrowid, book.title.strip(), now_iso()),
-            )
-        return {"ok": True, "book_id": book_id, "copy_id": cur2.lastrowid, "barcode": barcode}
+            # Copy-barcode handling:
+            # - If the target barcode already exists for this book, reuse that copy.
+            # - If an ISBN-only temporary copy exists and the new barcode is different,
+            #   relabel that copy instead of creating a duplicate.
+            # - Otherwise create a new scannable copy.
+            existing_target = conn.execute(
+                "SELECT id, book_id FROM book_copies WHERE barcode = ?",
+                (barcode,),
+            ).fetchone()
+            if existing_target:
+                if existing_target["book_id"] != book_id:
+                    raise sqlite3.IntegrityError("barcode belongs to another book")
+                copy_id = existing_target["id"]
+            else:
+                isbn_copy = None
+                if isbn and barcode != isbn:
+                    isbn_copy = conn.execute(
+                        "SELECT id FROM book_copies WHERE book_id = ? AND barcode = ?",
+                        (book_id, isbn),
+                    ).fetchone()
+                if isbn_copy:
+                    conn.execute("UPDATE book_copies SET barcode = ? WHERE id = ?", (barcode, isbn_copy["id"]))
+                    copy_id = isbn_copy["id"]
+                    conn.execute(
+                        "INSERT INTO events(event_type, book_copy_id, notes, created_at) VALUES (?, ?, ?, ?)",
+                        ("book_copy_relabelled", copy_id, f"{isbn} -> {barcode}", now_iso()),
+                    )
+                else:
+                    cur2 = conn.execute(
+                        "INSERT INTO book_copies(book_id, barcode, created_at) VALUES (?, ?, ?)",
+                        (book_id, barcode, now_iso()),
+                    )
+                    copy_id = cur2.lastrowid
+                    conn.execute(
+                        "INSERT INTO events(event_type, book_copy_id, notes, created_at) VALUES (?, ?, ?, ?)",
+                        ("book_copy_created", copy_id, book.title.strip(), now_iso()),
+                    )
+        return {"ok": True, "book_id": book_id, "copy_id": copy_id, "barcode": barcode}
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=409, detail=f"Book/copy already exists or barcode is duplicated: {exc}")
 
@@ -277,7 +349,8 @@ def list_books():
     with db() as conn:
         rows = conn.execute(
             """
-            SELECT b.id AS book_id, b.title, b.author, b.isbn, b.cover_url,
+            SELECT b.id AS book_id, b.title, b.author, b.illustrator, b.synopsis, b.isbn,
+                   b.cover_url, b.category, b.owned_qty,
                    bc.id AS copy_id, bc.barcode, bc.status,
                    c.name AS borrowed_by, l.due_at
             FROM book_copies bc
