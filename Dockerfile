@@ -10,4 +10,4 @@ ENV LIBRARY_DB=/data/library.db
 ENV DEFAULT_LOAN_DAYS=7
 
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.asgi:app", "--host", "0.0.0.0", "--port", "8000"]
