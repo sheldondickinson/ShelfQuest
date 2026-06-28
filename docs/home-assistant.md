@@ -92,23 +92,35 @@ Restart Home Assistant after adding the REST sensor.
 
 Use the child `slug` values from the endpoint, for example `pascal`, `remy`, `amelie` or `sacha`.
 
+The template below is deliberately defensive. It will not break if Home Assistant starts before ShelfQuest has returned data.
+
 ```yaml
 template:
   - sensor:
       - name: "ShelfQuest Pascal Reading"
         unique_id: shelfquest_pascal_reading
         state: >
-          {{ state_attr('sensor.shelfquest_reading', 'children_by_slug')['pascal']['active_loans'] | default(0) }}
+          {% set children = state_attr('sensor.shelfquest_reading', 'children_by_slug') or {} %}
+          {% set child = children.get('pascal', {}) %}
+          {{ child.get('active_loans', 0) }}
         unit_of_measurement: "books"
         attributes:
           summary: >
-            {{ state_attr('sensor.shelfquest_reading', 'children_by_slug')['pascal']['summary'] | default('No borrowed books') }}
+            {% set children = state_attr('sensor.shelfquest_reading', 'children_by_slug') or {} %}
+            {% set child = children.get('pascal', {}) %}
+            {{ child.get('summary', 'No borrowed books') }}
           markdown: >
-            {{ state_attr('sensor.shelfquest_reading', 'children_by_slug')['pascal']['markdown'] | default('_No books currently borrowed._') }}
+            {% set children = state_attr('sensor.shelfquest_reading', 'children_by_slug') or {} %}
+            {% set child = children.get('pascal', {}) %}
+            {{ child.get('markdown', '_No books currently borrowed._') }}
           overdue_loans: >
-            {{ state_attr('sensor.shelfquest_reading', 'children_by_slug')['pascal']['overdue_loans'] | default(0) }}
+            {% set children = state_attr('sensor.shelfquest_reading', 'children_by_slug') or {} %}
+            {% set child = children.get('pascal', {}) %}
+            {{ child.get('overdue_loans', 0) }}
           next_due_date: >
-            {{ state_attr('sensor.shelfquest_reading', 'children_by_slug')['pascal']['next_due_date'] | default('') }}
+            {% set children = state_attr('sensor.shelfquest_reading', 'children_by_slug') or {} %}
+            {% set child = children.get('pascal', {}) %}
+            {{ child.get('next_due_date', '') }}
 ```
 
 Repeat the template sensor for each child, changing:
@@ -158,9 +170,20 @@ cards:
           {{ state_attr('sensor.shelfquest_pascal_reading', 'markdown') }}
 ```
 
+## Testing from Home Assistant host
+
+From a terminal on the Home Assistant host or another LAN machine:
+
+```bash
+curl http://<shelfquest-host>:8123/api/integrations/home-assistant/reading
+```
+
+You should see JSON containing the `children` and `children_by_slug` fields.
+
 ## Notes
 
 - This is read-only. Home Assistant does not write directly to `library.db`.
 - No database migration is required.
+- The endpoint is unauthenticated in Phase 1, so keep it on the trusted home LAN.
 - If ShelfQuest is only reachable through HTTPS with a self-signed certificate, Home Assistant may need certificate handling adjusted or you may prefer the internal HTTP Docker/LAN address for the REST sensor.
 - Keep ShelfQuest and Home Assistant local to your home network unless you deliberately add proper reverse proxy, TLS and authentication controls.
