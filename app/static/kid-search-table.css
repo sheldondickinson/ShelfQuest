@@ -1,0 +1,162 @@
+/* v0.2.4 kid search catalogue */
+.kid-search-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+.kid-clear-button {
+  background: #64748b;
+}
+.kid-catalogue-results {
+  display: block;
+  margin-top: 16px;
+}
+.kid-catalogue-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+  padding: 12px;
+  border: 2px solid #ffd43b;
+  border-radius: 16px;
+  background: rgba(255,255,255,.78);
+}
+.kid-catalogue-summary,
+#kid-search-page-indicator {
+  color: #334155;
+  font-weight: 900;
+}
+.kid-catalogue-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.kid-catalogue-controls button:disabled {
+  cursor: not-allowed;
+  filter: grayscale(.3);
+  opacity: .55;
+}
+.kid-catalogue-controls select {
+  width: auto;
+  min-width: 118px;
+  padding: 8px 10px;
+}
+.kid-catalogue-scroll {
+  border: 3px solid #ffe066;
+  border-radius: 18px;
+  background: white;
+  box-shadow: 0 10px 22px rgba(0,0,0,.08);
+}
+.kid-catalogue-table th {
+  background: #fff3bf;
+  color: #5f3dc4;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: .02em;
+}
+.kid-catalogue-table td {
+  background: rgba(255,255,255,.98);
+}
+.kid-catalogue-row:hover td {
+  background: #fff9db;
+}
+.kid-table-cover {
+  width: 58px;
+  height: 82px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #f8f9fa;
+  box-shadow: 0 3px 10px rgba(0,0,0,.14);
+}
+.kid-table-title-button {
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #17202a;
+  text-align: left;
+  font-size: 17px;
+  line-height: 1.2;
+  box-shadow: none;
+}
+.kid-table-title-button:hover,
+.kid-table-title-button:focus {
+  color: #5f3dc4;
+  filter: none;
+  text-decoration: underline;
+}
+.kid-table-synopsis {
+  margin-top: .35rem;
+  max-width: 520px;
+  color: #475569;
+  font-size: .88rem;
+  line-height: 1.35;
+}
+
+@media (max-width: 700px) {
+  .kid-search-row {
+    grid-template-columns: 1fr;
+  }
+  .kid-search-button,
+  .kid-clear-button {
+    width: 100%;
+  }
+  .kid-catalogue-toolbar {
+    align-items: stretch;
+  }
+  .kid-catalogue-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+  .kid-catalogue-controls span,
+  .kid-catalogue-controls select {
+    grid-column: 1 / -1;
+    width: 100%;
+    text-align: center;
+  }
+  .kid-catalogue-scroll {
+    overflow-x: visible;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+  }
+  #kid-search-table,
+  #kid-search-table tbody,
+  #kid-search-table tr,
+  #kid-search-table th,
+  #kid-search-table td {
+    display: block;
+    width: 100%;
+  }
+  #kid-search-table tr:first-child {
+    display: none;
+  }
+  #kid-search-table tr {
+    margin-bottom: 12px;
+    border: 3px solid #ffe066;
+    border-radius: 18px;
+    background: white;
+    overflow: hidden;
+    box-shadow: 0 8px 18px rgba(0,0,0,.08);
+  }
+  #kid-search-table td {
+    border: 0;
+    border-bottom: 1px solid #fff3bf;
+    display: grid;
+    grid-template-columns: 96px 1fr;
+    gap: 10px;
+    align-items: start;
+  }
+  #kid-search-table td::before {
+    content: attr(data-label);
+    color: #5f3dc4;
+    font-weight: 900;
+  }
+  .kid-table-cover {
+    width: 72px;
+    height: 96px;
+  }
+}
