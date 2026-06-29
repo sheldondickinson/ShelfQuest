@@ -1,0 +1,15 @@
+/* v0.2.5 camera scan URL toggle
+   Default is hidden. Add ?camscan=true to the kiosk/admin URL to show camera scan buttons. */
+html:not(.camscan-enabled) .scan-button {
+  display: none !important;
+}
+
+html:not(.camscan-enabled) .scan-input-row {
+  grid-template-columns: 1fr;
+}
+
+html.camscan-enabled .scan-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
