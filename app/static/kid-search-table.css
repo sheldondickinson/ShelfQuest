@@ -2,6 +2,12 @@
 .kid-search-row {
   grid-template-columns: minmax(0, 1fr) auto auto;
 }
+.kid-search-button,
+.kid-clear-button {
+  width: auto;
+  min-width: 130px;
+  margin-top: 0;
+}
 .kid-clear-button {
   background: #64748b;
 }
