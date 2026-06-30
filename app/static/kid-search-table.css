@@ -1,4 +1,4 @@
-/* v0.2.4 kid search catalogue */
+/* v0.2.6 catalogue table and filters */
 .kid-search-row {
   grid-template-columns: minmax(0, 1fr) auto auto;
 }
@@ -10,6 +10,50 @@
 }
 .kid-clear-button {
   background: #64748b;
+}
+.catalogue-filter-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 12px 0 4px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(255,255,255,.78);
+  border: 1px solid rgba(100,116,139,.22);
+}
+.catalogue-filter-row label {
+  margin: 0;
+  display: grid;
+  gap: 5px;
+  color: #334155;
+  font-weight: 800;
+}
+.catalogue-filter-row span {
+  font-size: .8rem;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+.catalogue-filter-row select {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #17202a;
+  font: inherit;
+}
+.kid-catalogue-filter-row {
+  border: 2px solid #ffe066;
+  background: #fff9db;
+}
+.admin-catalogue-filter-row {
+  margin-top: 0;
+}
+.filter-note {
+  color: #64748b;
+  font-size: .9em;
+  font-weight: 700;
 }
 .kid-catalogue-results {
   display: block;
@@ -102,7 +146,8 @@
 }
 
 @media (max-width: 700px) {
-  .kid-search-row {
+  .kid-search-row,
+  .catalogue-filter-row {
     grid-template-columns: 1fr;
   }
   .kid-search-button,
