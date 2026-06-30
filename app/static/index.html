@@ -4,7 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ShelfQuest</title>
+  <script>
+    document.documentElement.classList.toggle(
+      'camscan-enabled',
+      new URLSearchParams(window.location.search).get('camscan') === 'true'
+    );
+  </script>
   <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/kid-search-table.css" />
+  <link rel="stylesheet" href="/static/camscan-toggle.css" />
 </head>
 <body>
   <header class="app-hero">
@@ -14,7 +22,7 @@
       <p>Choose your reader, find your next book, and start your reading quest.</p>
     </div>
     <div class="kid-emoji hero-emoji">🦄 🚀 🐉</div>
-    <div class="version">v0.2.3</div>
+    <div class="version">v0.2.5</div>
   </header>
 
   <main>
@@ -83,12 +91,13 @@
             <span class="big-emoji">🔎</span>
             <div>
               <h3>Find a Book</h3>
-              <p>Search by title, author, category, or anything you remember.</p>
+              <p>Search by title, author, category, shelf, or anything you remember.</p>
             </div>
           </div>
           <div class="kid-search-row">
             <input id="kid-search" class="kid-input" placeholder="Try dinosaurs, Bluey, wombat, bedtime..." autocomplete="off" />
             <button class="kid-button kid-search-button" onclick="kidSearchBooks()">Search</button>
+            <button class="kid-button kid-clear-button" onclick="clearKidSearch()">Clear</button>
           </div>
           <div id="kid-search-results" class="kid-results"></div>
         </div>
@@ -352,5 +361,6 @@
   </div>
 
   <script src="/static/app.js"></script>
+  <script src="/static/kid-search-table.js"></script>
 </body>
 </html>
