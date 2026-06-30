@@ -2,6 +2,7 @@ let currentKidSearchPage = 1;
 let kidSearchPageSize = 10;
 let lastKidSearchQuery = '';
 let kidCatalogueRows = [];
+let quickBorrowBookCode = '';
 
 const BOOK_FILTER_FIELDS = [
   ['all', 'All fields'],
@@ -277,6 +278,209 @@ function changeKidSearchPageSize() {
   kidSearchPageSize = Number(document.getElementById('kid-search-page-size')?.value || 10);
   currentKidSearchPage = 1;
   renderKidSearchPage();
+}
+
+function jsString(value) {
+  return escapeHtml(JSON.stringify(String(value ?? '')));
+}
+
+function canQuickBorrowBook(book) {
+  if (!book) return false;
+  if ((book.condition_status || 'good') === 'damaged_needs_repair') return false;
+  return (book.status || 'available') !== 'borrowed';
+}
+
+function ensureQuickBorrowStyles() {
+  if (document.getElementById('quick-borrow-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'quick-borrow-styles';
+  style.textContent = `
+    .quick-borrow-toggle {
+      width: 100%;
+      margin-top: 16px;
+      padding: 18px;
+      border-radius: 18px;
+      background: #37b24d;
+      font-size: 22px;
+    }
+    .quick-borrow-panel {
+      margin-top: 16px;
+      padding: 16px;
+      border: 4px solid #c0eb75;
+      border-radius: 22px;
+      background: white;
+    }
+    .quick-borrow-panel[hidden] { display: none; }
+    .quick-borrow-panel h3 {
+      margin: 0 0 6px;
+      font-size: 24px;
+    }
+    .quick-borrow-help {
+      margin: 0 0 12px;
+      font-weight: 800;
+      color: #334155;
+    }
+    .quick-borrow-readers {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
+      gap: 10px;
+      margin: 10px 0 12px;
+    }
+    .quick-borrow-reader.selected {
+      border-color: #37b24d;
+      background: #ebfbee;
+      box-shadow: 0 0 0 4px rgba(55, 178, 77, .18);
+    }
+    .quick-borrow-scan summary {
+      cursor: pointer;
+      font-size: 18px;
+      font-weight: 900;
+      margin: 8px 0;
+    }
+    .quick-borrow-submit {
+      width: 100%;
+      margin-top: 14px;
+      padding: 16px;
+      border-radius: 18px;
+      background: #f76707;
+      font-size: 20px;
+    }
+    .quick-borrow-book-code {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: #f1f5f9;
+      color: #334155;
+      font-weight: 900;
+    }
+    @media (max-width: 700px) {
+      .quick-borrow-readers { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); }
+      .quick-borrow-toggle, .quick-borrow-submit { font-size: 19px; }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function quickBorrowReadersHtml() {
+  if (!childrenCache.length) return '<p class="kid-hint">No children are set up yet. Add a child in Admin first.</p>';
+  return childrenCache.map(child => `
+    <button class="reader-picker quick-borrow-reader" data-barcode="${escapeHtml(child.barcode)}" type="button" onclick="selectQuickBorrowChild(${jsString(child.barcode)})" aria-label="Choose ${escapeHtml(child.name)}">
+      ${childPhoto(child, 'reader-photo')}
+      <span>${escapeHtml(child.name)}</span>
+      <small>${escapeHtml(child.active_loans ?? 0)}/${escapeHtml(child.borrow_limit ?? '')}</small>
+    </button>
+  `).join('');
+}
+
+function openQuickBorrowPanel() {
+  const panel = document.getElementById('quick-borrow-panel');
+  if (!panel) return;
+  panel.hidden = false;
+  panel.innerHTML = `
+    <h3>Who is borrowing this?</h3>
+    <p class="quick-borrow-help">Tap a reader, or scan their library card.</p>
+    <input id="quick-borrow-child-select" type="hidden" />
+    <div class="quick-borrow-readers">${quickBorrowReadersHtml()}</div>
+    <details class="quick-borrow-scan">
+      <summary>Scan a library card instead</summary>
+      <div class="scan-input-row">
+        <input id="quick-borrow-child-scan" class="kid-input kid-card-scan" placeholder="Scan library card" autocomplete="off" />
+        <button class="scan-button" type="button" title="Scan with camera" onclick="openBarcodeScanner('quick-borrow-child-scan', submitQuickBorrow)">📷</button>
+      </div>
+    </details>
+    <button class="quick-borrow-submit" type="button" onclick="submitQuickBorrow()">Borrow this book</button>
+    <p id="quick-borrow-result" class="result kid-result"></p>
+  `;
+
+  const scan = document.getElementById('quick-borrow-child-scan');
+  if (scan) {
+    scan.addEventListener('input', () => {
+      const selected = document.getElementById('quick-borrow-child-select');
+      if (scan.value.trim() && selected) selected.value = '';
+      renderQuickBorrowSelection();
+    });
+    scan.addEventListener('keydown', e => {
+      if (e.key === 'Enter') submitQuickBorrow();
+    });
+  }
+
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function selectQuickBorrowChild(barcode) {
+  const selected = document.getElementById('quick-borrow-child-select');
+  const scan = document.getElementById('quick-borrow-child-scan');
+  if (selected) selected.value = barcode;
+  if (scan) scan.value = '';
+  renderQuickBorrowSelection();
+}
+
+function renderQuickBorrowSelection() {
+  const selected = document.getElementById('quick-borrow-child-select')?.value?.trim() || '';
+  document.querySelectorAll('.quick-borrow-reader').forEach(btn => {
+    btn.classList.toggle('selected', Boolean(selected) && btn.dataset.barcode === selected);
+  });
+}
+
+function selectedQuickBorrowChildBarcode() {
+  const scanned = document.getElementById('quick-borrow-child-scan')?.value?.trim() || '';
+  const selected = document.getElementById('quick-borrow-child-select')?.value?.trim() || '';
+  return scanned || selected;
+}
+
+async function submitQuickBorrow() {
+  const resultId = 'quick-borrow-result';
+  const childBarcode = selectedQuickBorrowChildBarcode();
+  if (!quickBorrowBookCode) return setResult(resultId, 'This book does not have a barcode to borrow.', false);
+  if (!childBarcode) return setResult(resultId, 'Choose a reader or scan a library card first.', false);
+
+  try {
+    const r = await api('/api/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ child_barcode: childBarcode, book_code: quickBorrowBookCode })
+    });
+    const message = `🎉 ${r.child} borrowed “${r.title}”. Bring it back by ${r.due_at}.`;
+    setResult(resultId, message);
+    setResult('borrow-result', message);
+    quickBorrowBookCode = '';
+    document.querySelector('.quick-borrow-submit')?.setAttribute('disabled', 'disabled');
+    await refreshAll();
+  } catch (e) {
+    setResult(resultId, e.message, false);
+  }
+}
+
+function showBookModal(index) {
+  const r = kidSearchCache[index];
+  if (!r) return;
+  ensureQuickBorrowStyles();
+
+  const status = kidStatusText(r);
+  const canBorrow = canQuickBorrowBook(r);
+  const bookCode = r.barcode || r.isbn || '';
+  quickBorrowBookCode = bookCode;
+
+  document.getElementById('book-modal-content').innerHTML = `
+    <div class="modal-book">
+      <div>${coverImg(r, 'modal-cover')}</div>
+      <div>
+        <h2 id="modal-title">${escapeHtml(r.title)}</h2>
+        ${r.author ? `<p><strong>Author:</strong> ${escapeHtml(r.author)}</p>` : ''}
+        ${r.illustrator ? `<p><strong>Illustrator:</strong> ${escapeHtml(r.illustrator)}</p>` : ''}
+        ${r.category ? `<p><strong>Shelf:</strong> ${escapeHtml(r.category)}</p>` : ''}
+        ${r.shelf_location ? `<p><strong>Location:</strong> ${escapeHtml(r.shelf_location)}</p>` : ''}
+        <p><strong>Status:</strong> ${escapeHtml(status)}</p>
+        ${bookCode ? `<div class="quick-borrow-book-code">Book code: ${escapeHtml(bookCode)}</div>` : ''}
+        ${r.synopsis ? `<p class="modal-synopsis">${escapeHtml(r.synopsis)}</p>` : '<p class="modal-synopsis">No story blurb yet.</p>'}
+        ${canBorrow && bookCode
+          ? `<button class="quick-borrow-toggle" type="button" onclick="openQuickBorrowPanel()">⚡ Quick Borrow</button>
+             <div id="quick-borrow-panel" class="quick-borrow-panel" hidden></div>`
+          : `<div class="modal-action-note">${canBorrow ? 'Ask a grown-up to add a barcode before borrowing this one.' : 'Ask a grown-up about this one.'}</div>`}
+      </div>
+    </div>
+  `;
+  document.getElementById('book-modal').hidden = false;
 }
 
 async function refreshBooks() {
