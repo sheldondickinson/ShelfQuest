@@ -1,43 +1,207 @@
 let currentKidSearchPage = 1;
 let kidSearchPageSize = 10;
 let lastKidSearchQuery = '';
+let kidCatalogueRows = [];
+
+const BOOK_FILTER_FIELDS = [
+  ['all', 'All fields'],
+  ['title', 'Title'],
+  ['author', 'Author'],
+  ['illustrator', 'Illustrator'],
+  ['category', 'Category'],
+  ['shelf', 'Shelf'],
+  ['synopsis', 'Synopsis'],
+  ['status', 'Status'],
+  ['code', 'ISBN / barcode']
+];
+
+const BOOK_STATUS_FILTERS = [
+  ['all', 'All statuses'],
+  ['available', 'Available'],
+  ['borrowed', 'Borrowed'],
+  ['damaged', 'Needs repair']
+];
+
+function normaliseFilterText(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function bookStatusTextForFilter(r) {
+  const bits = [];
+  const status = r.status || 'available';
+  const condition = r.condition_status || 'good';
+  bits.push(status === 'borrowed' ? 'borrowed' : 'available');
+  if (r.borrowed_by) bits.push(r.borrowed_by);
+  if (condition === 'damaged_needs_repair') bits.push('damaged needs repair repair');
+  else bits.push('good');
+  bits.push(kidStatusText(r));
+  return bits.join(' ');
+}
+
+function bookFieldValues(r, field) {
+  const values = {
+    title: [r.title],
+    author: [r.author],
+    illustrator: [r.illustrator],
+    category: [r.category],
+    shelf: [r.shelf_location, r.category],
+    synopsis: [r.synopsis],
+    status: [bookStatusTextForFilter(r)],
+    code: [r.isbn, r.barcode]
+  };
+  if (field && field !== 'all') return values[field] || [];
+  return [
+    r.title,
+    r.author,
+    r.illustrator,
+    r.category,
+    r.shelf_location,
+    r.synopsis,
+    r.isbn,
+    r.barcode,
+    r.condition_note,
+    bookStatusTextForFilter(r)
+  ];
+}
+
+function rowMatchesTextFilter(r, query, field) {
+  const q = normaliseFilterText(query);
+  if (!q) return true;
+  const haystack = bookFieldValues(r, field).map(v => normaliseFilterText(v)).join(' ');
+  return q.split(/\s+/).every(term => haystack.includes(term));
+}
+
+function rowMatchesStatusFilter(r, statusFilter) {
+  if (!statusFilter || statusFilter === 'all') return true;
+  const status = r.status || 'available';
+  const condition = r.condition_status || 'good';
+  if (statusFilter === 'available') return status !== 'borrowed';
+  if (statusFilter === 'borrowed') return status === 'borrowed';
+  if (statusFilter === 'damaged') return condition === 'damaged_needs_repair';
+  return true;
+}
+
+function filterBookRows(rows, filters) {
+  return rows.filter(r =>
+    rowMatchesTextFilter(r, filters.query, filters.field) &&
+    rowMatchesStatusFilter(r, filters.status)
+  );
+}
+
+function filterSelectOptions(options, selected = 'all') {
+  return options.map(([value, label]) => `<option value="${escapeHtml(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
+}
+
+function getKidFilters() {
+  return {
+    query: document.getElementById('kid-search')?.value?.trim() || '',
+    field: document.getElementById('kid-search-field')?.value || 'all',
+    status: document.getElementById('kid-status-filter')?.value || 'all'
+  };
+}
+
+function getAdminBookFilters() {
+  return {
+    query: document.getElementById('book-search')?.value?.trim() || '',
+    field: document.getElementById('book-search-field')?.value || 'all',
+    status: document.getElementById('book-status-filter')?.value || 'all'
+  };
+}
+
+function ensureKidFilterControls() {
+  if (document.getElementById('kid-catalogue-filter-row')) return;
+  const results = document.getElementById('kid-search-results');
+  if (!results) return;
+  const filterRow = document.createElement('div');
+  filterRow.id = 'kid-catalogue-filter-row';
+  filterRow.className = 'catalogue-filter-row kid-catalogue-filter-row';
+  filterRow.innerHTML = `
+    <label>
+      <span>Search in</span>
+      <select id="kid-search-field" aria-label="Choose which book field to search">
+        ${filterSelectOptions(BOOK_FILTER_FIELDS)}
+      </select>
+    </label>
+    <label>
+      <span>Status</span>
+      <select id="kid-status-filter" aria-label="Filter books by status">
+        ${filterSelectOptions(BOOK_STATUS_FILTERS)}
+      </select>
+    </label>
+  `;
+  results.parentNode.insertBefore(filterRow, results);
+
+  document.getElementById('kid-search-field')?.addEventListener('change', () => kidSearchBooks());
+  document.getElementById('kid-status-filter')?.addEventListener('change', () => kidSearchBooks());
+}
+
+function ensureAdminFilterControls() {
+  if (document.getElementById('admin-catalogue-filter-row')) return;
+  const booksCard = document.getElementById('books-card');
+  const result = document.getElementById('books-result');
+  if (!booksCard || !result) return;
+  const filterRow = document.createElement('div');
+  filterRow.id = 'admin-catalogue-filter-row';
+  filterRow.className = 'catalogue-filter-row admin-catalogue-filter-row';
+  filterRow.innerHTML = `
+    <label>
+      <span>Search in</span>
+      <select id="book-search-field" aria-label="Choose which book field to search">
+        ${filterSelectOptions(BOOK_FILTER_FIELDS)}
+      </select>
+    </label>
+    <label>
+      <span>Status</span>
+      <select id="book-status-filter" aria-label="Filter books by status">
+        ${filterSelectOptions(BOOK_STATUS_FILTERS)}
+      </select>
+    </label>
+  `;
+  booksCard.insertBefore(filterRow, result);
+
+  document.getElementById('book-search-field')?.addEventListener('change', () => refreshBooks());
+  document.getElementById('book-status-filter')?.addEventListener('change', () => refreshBooks());
+}
+
+async function loadKidCatalogueRows(forceReload = false) {
+  if (!forceReload && kidCatalogueRows.length) return kidCatalogueRows;
+  kidCatalogueRows = await api('/api/books');
+  return kidCatalogueRows;
+}
 
 function clearKidSearch() {
   const input = document.getElementById('kid-search');
-  const target = document.getElementById('kid-search-results');
   if (input) input.value = '';
-  kidSearchCache = [];
+  const field = document.getElementById('kid-search-field');
+  if (field) field.value = 'all';
+  const status = document.getElementById('kid-status-filter');
+  if (status) status.value = 'all';
   currentKidSearchPage = 1;
   lastKidSearchQuery = '';
-  if (target) target.innerHTML = '<p class="kid-hint">Search for a title, author, shelf, topic or story clue.</p>';
+  kidSearchBooks();
   input?.focus();
 }
 
-async function kidSearchBooks() {
-  const input = document.getElementById('kid-search');
-  const q = input?.value?.trim() || '';
+async function kidSearchBooks(options = {}) {
   const target = document.getElementById('kid-search-results');
   if (!target) return;
-
-  if (!q) {
-    clearKidSearch();
-    return;
-  }
+  ensureKidFilterControls();
 
   try {
     target.classList.add('kid-catalogue-results');
-    target.innerHTML = '<p class="kid-hint">Searching the shelves...</p>';
-    const rows = await api('/api/books?q=' + encodeURIComponent(q));
-    kidSearchCache = rows;
-    lastKidSearchQuery = q;
+    if (!kidCatalogueRows.length) target.innerHTML = '<p class="kid-hint">Loading the shelves...</p>';
+    const rows = await loadKidCatalogueRows(Boolean(options.forceReload));
+    const filters = getKidFilters();
+    kidSearchCache = filterBookRows(rows, filters);
+    lastKidSearchQuery = filters.query;
     currentKidSearchPage = 1;
-    renderKidSearchPage();
+    renderKidSearchPage(filters, rows.length);
   } catch (e) {
     target.innerHTML = `<p class="kid-hint error">${escapeHtml(e.message)}</p>`;
   }
 }
 
-function renderKidSearchPage() {
+function renderKidSearchPage(filters = getKidFilters(), catalogueTotal = kidCatalogueRows.length) {
   const target = document.getElementById('kid-search-results');
   if (!target) return;
 
@@ -45,7 +209,8 @@ function renderKidSearchPage() {
 
   const total = kidSearchCache.length;
   if (!total) {
-    target.innerHTML = `<p class="kid-hint">No books found for “${escapeHtml(lastKidSearchQuery)}”. Try another word.</p>`;
+    const hasFilter = Boolean(filters.query || filters.field !== 'all' || filters.status !== 'all');
+    target.innerHTML = `<p class="kid-hint">${hasFilter ? 'No books match those filters. Try widening the search.' : 'No books are in the catalogue yet.'}</p>`;
     return;
   }
 
@@ -54,11 +219,12 @@ function renderKidSearchPage() {
   const start = (currentKidSearchPage - 1) * kidSearchPageSize;
   const pageRows = kidSearchCache.slice(start, start + kidSearchPageSize);
   const end = Math.min(start + kidSearchPageSize, total);
+  const filteredText = total === catalogueTotal ? '' : ` <span class="filter-note">filtered from ${catalogueTotal}</span>`;
 
   target.innerHTML = `
     <div class="kid-catalogue-toolbar">
-      <div class="kid-catalogue-summary">Showing ${start + 1}-${end} of ${total} books</div>
-      <div class="kid-catalogue-controls" aria-label="Search result pages">
+      <div class="kid-catalogue-summary">Showing ${start + 1}-${end} of ${total} books${filteredText}</div>
+      <div class="kid-catalogue-controls" aria-label="Catalogue pages">
         <button class="small secondary" type="button" onclick="prevKidSearchPage()" ${currentKidSearchPage <= 1 ? 'disabled' : ''}>Previous</button>
         <span id="kid-search-page-indicator">Page ${currentKidSearchPage} of ${totalPages}</span>
         <button class="small secondary" type="button" onclick="nextKidSearchPage()" ${currentKidSearchPage >= totalPages ? 'disabled' : ''}>Next</button>
@@ -113,21 +279,51 @@ function changeKidSearchPageSize() {
   renderKidSearchPage();
 }
 
-window.addEventListener('load', () => {
-  const input = document.getElementById('kid-search');
-  if (!input) return;
+async function refreshBooks() {
+  ensureAdminFilterControls();
+  const rows = await api('/api/books');
+  booksCache = filterBookRows(rows, getAdminBookFilters());
+  currentBookPage = 1;
+  renderBooksPage();
+}
 
-  let timer;
-  input.addEventListener('input', () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      if (input.value.trim()) kidSearchBooks();
-      else clearKidSearch();
-    }, 300);
-  });
+function clearBookSearch() {
+  const search = document.getElementById('book-search');
+  if (search) search.value = '';
+  const field = document.getElementById('book-search-field');
+  if (field) field.value = 'all';
+  const status = document.getElementById('book-status-filter');
+  if (status) status.value = 'all';
+  currentBookPage = 1;
+  refreshBooks();
+}
 
-  const target = document.getElementById('kid-search-results');
-  if (target && !target.innerHTML.trim()) {
-    target.innerHTML = '<p class="kid-hint">Search for a title, author, shelf, topic or story clue.</p>';
+function setupCatalogueFilters() {
+  ensureKidFilterControls();
+  ensureAdminFilterControls();
+
+  const kidInput = document.getElementById('kid-search');
+  if (kidInput && !kidInput.dataset.catalogueFilterBound) {
+    kidInput.dataset.catalogueFilterBound = 'true';
+    let timer;
+    kidInput.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => kidSearchBooks(), 250);
+    });
   }
+
+  const adminInput = document.getElementById('book-search');
+  if (adminInput && !adminInput.dataset.catalogueFilterBound) {
+    adminInput.dataset.catalogueFilterBound = 'true';
+    let timer;
+    adminInput.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(refreshBooks, 250);
+    });
+  }
+}
+
+window.addEventListener('load', () => {
+  setupCatalogueFilters();
+  kidSearchBooks();
 });
