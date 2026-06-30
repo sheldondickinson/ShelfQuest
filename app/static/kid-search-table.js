@@ -298,6 +298,16 @@ function clearBookSearch() {
   refreshBooks();
 }
 
+async function refreshAll() {
+  try {
+    await Promise.all([refreshChildren(), refreshBooks(), refreshLoans()]);
+    kidCatalogueRows = [];
+    await kidSearchBooks({ forceReload: true });
+  } catch (e) {
+    console.error(e);
+  }
+}
+
 function setupCatalogueFilters() {
   ensureKidFilterControls();
   ensureAdminFilterControls();
@@ -309,16 +319,6 @@ function setupCatalogueFilters() {
     kidInput.addEventListener('input', () => {
       clearTimeout(timer);
       timer = setTimeout(() => kidSearchBooks(), 250);
-    });
-  }
-
-  const adminInput = document.getElementById('book-search');
-  if (adminInput && !adminInput.dataset.catalogueFilterBound) {
-    adminInput.dataset.catalogueFilterBound = 'true';
-    let timer;
-    adminInput.addEventListener('input', () => {
-      clearTimeout(timer);
-      timer = setTimeout(refreshBooks, 250);
     });
   }
 }
