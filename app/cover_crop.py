@@ -6,138 +6,146 @@ from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
-import cv2
-import numpy as np
 from fastapi import BackgroundTasks, Depends, HTTPException
-from PIL import Image, ImageOps
+from PIL import Image, ImageChops, ImageFilter, ImageOps, ImageStat
 
 
 AUTO_CROP_ENABLED = os.getenv("AUTO_CROP_COVER_PHOTOS", "true").strip().lower() not in {"0", "false", "no", "off"}
 AUTO_CROP_INSET_FRACTION = float(os.getenv("AUTO_CROP_INSET_FRACTION", "0.025"))
 AUTO_CROP_MAX_DIMENSION = int(os.getenv("AUTO_CROP_MAX_DIMENSION", "1600"))
 AUTO_CROP_JPEG_QUALITY = int(os.getenv("AUTO_CROP_JPEG_QUALITY", "88"))
+AUTO_CROP_EDGE_PADDING = int(os.getenv("AUTO_CROP_EDGE_PADDING", "8"))
 
 
-def _image_to_bgr(raw: bytes) -> Optional[np.ndarray]:
-    """Decode image bytes using Pillow so iPhone EXIF orientation is respected."""
+def _open_rgb_image(raw: bytes) -> Optional[Image.Image]:
+    """Decode image bytes using Pillow and respect iPhone EXIF orientation."""
     try:
         with Image.open(BytesIO(raw)) as img:
             img = ImageOps.exif_transpose(img)
-            img = img.convert("RGB")
-            arr = np.array(img)
-        return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+            return img.convert("RGB")
     except Exception:
         return None
 
 
-def _order_points(points: np.ndarray) -> np.ndarray:
-    pts = points.reshape(4, 2).astype("float32")
-    s = pts.sum(axis=1)
-    diff = np.diff(pts, axis=1).reshape(4)
+def _resize_for_processing(image: Image.Image) -> tuple[Image.Image, float]:
+    width, height = image.size
+    max_dim = max(width, height)
+    if max_dim <= AUTO_CROP_MAX_DIMENSION:
+        return image.copy(), 1.0
 
-    ordered = np.zeros((4, 2), dtype="float32")
-    ordered[0] = pts[np.argmin(s)]      # top-left
-    ordered[2] = pts[np.argmax(s)]      # bottom-right
-    ordered[1] = pts[np.argmin(diff)]   # top-right
-    ordered[3] = pts[np.argmax(diff)]   # bottom-left
-    return ordered
+    scale = AUTO_CROP_MAX_DIMENSION / float(max_dim)
+    resized = image.resize((int(width * scale), int(height * scale)), Image.Resampling.LANCZOS)
+    return resized, scale
 
 
-def _largest_reasonable_quad(image: np.ndarray) -> Optional[np.ndarray]:
-    height, width = image.shape[:2]
-    image_area = float(width * height)
+def _corner_background_colour(image: Image.Image) -> tuple[int, int, int]:
+    """Estimate the background colour from the four corners of the uploaded photo."""
+    width, height = image.size
+    patch = max(20, min(width, height) // 12)
+    boxes = [
+        (0, 0, patch, patch),
+        (width - patch, 0, width, patch),
+        (0, height - patch, patch, height),
+        (width - patch, height - patch, width, height),
+    ]
 
-    scale = min(1.0, AUTO_CROP_MAX_DIMENSION / float(max(width, height)))
-    if scale < 1.0:
-        work = cv2.resize(image, (int(width * scale), int(height * scale)), interpolation=cv2.INTER_AREA)
-    else:
-        work = image.copy()
+    values = []
+    for box in boxes:
+        stat = ImageStat.Stat(image.crop(box))
+        values.append(tuple(int(v) for v in stat.median))
 
-    grey = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
-    grey = cv2.GaussianBlur(grey, (5, 5), 0)
-
-    # Canny plus dilation works well for books photographed on carpet/table backgrounds.
-    edges = cv2.Canny(grey, 45, 130)
-    kernel = np.ones((5, 5), np.uint8)
-    edges = cv2.dilate(edges, kernel, iterations=1)
-    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=2)
-
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    contours = sorted(contours, key=cv2.contourArea, reverse=True)[:12]
-
-    for contour in contours:
-        area = cv2.contourArea(contour) / (scale * scale)
-        if area < image_area * 0.18:
-            continue
-        # If the contour is almost the whole photo, it is probably just the image boundary.
-        if area > image_area * 0.94:
-            continue
-
-        peri = cv2.arcLength(contour, True)
-        approx = cv2.approxPolyDP(contour, 0.025 * peri, True)
-        if len(approx) != 4 or not cv2.isContourConvex(approx):
-            rect = cv2.minAreaRect(contour)
-            approx = cv2.boxPoints(rect).reshape(4, 1, 2)
-
-        quad = approx.reshape(4, 2).astype("float32") / scale
-        ordered = _order_points(quad)
-
-        top_width = np.linalg.norm(ordered[1] - ordered[0])
-        bottom_width = np.linalg.norm(ordered[2] - ordered[3])
-        left_height = np.linalg.norm(ordered[3] - ordered[0])
-        right_height = np.linalg.norm(ordered[2] - ordered[1])
-        crop_width = max(top_width, bottom_width)
-        crop_height = max(left_height, right_height)
-        if crop_width < 200 or crop_height < 200:
-            continue
-
-        aspect = crop_width / max(crop_height, 1)
-        if not 0.35 <= aspect <= 2.8:
-            continue
-
-        return ordered
-
-    return None
+    return tuple(sorted(channel)[len(channel) // 2] for channel in zip(*values))
 
 
-def _inset_points(points: np.ndarray, fraction: float) -> np.ndarray:
-    centre = points.mean(axis=0)
-    return centre + (points - centre) * (1.0 - max(0.0, min(fraction, 0.12)))
+def _mask_non_background(image: Image.Image) -> Image.Image:
+    """Create a mask of areas that are visually different from the estimated background."""
+    background = Image.new("RGB", image.size, _corner_background_colour(image))
+    diff = ImageChops.difference(image, background).convert("L")
+
+    # Smooth carpet / table texture while keeping the book edge as a larger contiguous region.
+    diff = diff.filter(ImageFilter.GaussianBlur(radius=2))
+
+    # Auto threshold from image statistics with a sensible floor for low-contrast books.
+    stat = ImageStat.Stat(diff)
+    threshold = max(24, min(70, int(stat.mean[0] + stat.stddev[0] * 0.65)))
+    mask = diff.point(lambda px: 255 if px > threshold else 0)
+
+    # Close small holes and remove speckle noise from carpet texture.
+    mask = mask.filter(ImageFilter.MaxFilter(9))
+    mask = mask.filter(ImageFilter.MinFilter(9))
+    mask = mask.filter(ImageFilter.MaxFilter(5))
+    return mask
+
+
+def _find_content_bbox(mask: Image.Image, image_size: tuple[int, int]) -> Optional[tuple[int, int, int, int]]:
+    bbox = mask.getbbox()
+    if not bbox:
+        return None
+
+    width, height = image_size
+    left, top, right, bottom = bbox
+    crop_w = right - left
+    crop_h = bottom - top
+    image_area = width * height
+    crop_area = crop_w * crop_h
+
+    if crop_w < width * 0.25 or crop_h < height * 0.25:
+        return None
+    if crop_area > image_area * 0.96:
+        return None
+
+    aspect = crop_w / max(crop_h, 1)
+    if not 0.35 <= aspect <= 2.8:
+        return None
+
+    return bbox
+
+
+def _inset_bbox(bbox: tuple[int, int, int, int], image_size: tuple[int, int], fraction: float) -> tuple[int, int, int, int]:
+    left, top, right, bottom = bbox
+    width = right - left
+    height = bottom - top
+    inset_x = max(AUTO_CROP_EDGE_PADDING, int(width * max(0.0, min(fraction, 0.12))))
+    inset_y = max(AUTO_CROP_EDGE_PADDING, int(height * max(0.0, min(fraction, 0.12))))
+
+    img_w, img_h = image_size
+    return (
+        max(0, left + inset_x),
+        max(0, top + inset_y),
+        min(img_w, right - inset_x),
+        min(img_h, bottom - inset_y),
+    )
 
 
 def autocrop_book_cover(raw: bytes) -> Optional[bytes]:
-    """Return cropped JPEG bytes, or None if confident automatic cropping is not possible."""
-    image = _image_to_bgr(raw)
+    """Return cropped JPEG bytes, or None if confident automatic cropping is not possible.
+
+    This intentionally uses Pillow only. It avoids OpenCV/NumPy because many small NAS and
+    Raspberry Pi-style targets do not have suitable OpenCV wheels and should not be compiling
+    image-processing stacks during Docker builds.
+    """
+    image = _open_rgb_image(raw)
     if image is None:
         return None
 
-    quad = _largest_reasonable_quad(image)
-    if quad is None:
+    work, scale = _resize_for_processing(image)
+    mask = _mask_non_background(work)
+    bbox = _find_content_bbox(mask, work.size)
+    if bbox is None:
         return None
 
-    quad = _inset_points(quad, AUTO_CROP_INSET_FRACTION)
+    if scale != 1.0:
+        bbox = tuple(int(v / scale) for v in bbox)
 
-    top_width = np.linalg.norm(quad[1] - quad[0])
-    bottom_width = np.linalg.norm(quad[2] - quad[3])
-    left_height = np.linalg.norm(quad[3] - quad[0])
-    right_height = np.linalg.norm(quad[2] - quad[1])
-    out_width = int(max(top_width, bottom_width))
-    out_height = int(max(left_height, right_height))
-
-    if out_width < 200 or out_height < 200:
+    bbox = _inset_bbox(bbox, image.size, AUTO_CROP_INSET_FRACTION)
+    left, top, right, bottom = bbox
+    if right <= left or bottom <= top:
         return None
 
-    destination = np.array(
-        [[0, 0], [out_width - 1, 0], [out_width - 1, out_height - 1], [0, out_height - 1]],
-        dtype="float32",
-    )
-    transform = cv2.getPerspectiveTransform(quad.astype("float32"), destination)
-    warped = cv2.warpPerspective(image, transform, (out_width, out_height))
-
-    ok, encoded = cv2.imencode(".jpg", warped, [int(cv2.IMWRITE_JPEG_QUALITY), AUTO_CROP_JPEG_QUALITY])
-    if not ok:
-        return None
-    return encoded.tobytes()
+    cropped = image.crop(bbox)
+    output = BytesIO()
+    cropped.save(output, format="JPEG", quality=AUTO_CROP_JPEG_QUALITY, optimise=True)
+    return output.getvalue()
 
 
 def _remove_existing_cover_route(app) -> None:
@@ -161,7 +169,7 @@ def register_cover_crop_routes(app, main_module) -> None:
                 with main_module.db() as conn:
                     conn.execute(
                         "INSERT INTO events(event_type, notes, created_at) VALUES (?, ?, ?)",
-                        ("cover_autocrop_skipped", f"{book_title}: no confident book rectangle; kept {original_url}", main_module.now_iso()),
+                        ("cover_autocrop_skipped", f"{book_title}: no confident book boundary; kept {original_url}", main_module.now_iso()),
                     )
                 return
 
